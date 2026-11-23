@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Project Notes — Shared Worker Bridge Demo</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --danger: #dc2626;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --card: #1e293b;
+        --text: #f8fafc;
+        --muted: #94a3b8;
+        --border: #334155;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 2rem 1rem;
+      max-width: 680px;
+      margin-inline: auto;
+      line-height: 1.5;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 1.5rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 0.55rem 1rem;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-hover); }
+    button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button.danger {
+      background: var(--danger);
+      padding: 0.35rem 0.7rem;
+      font-size: 0.85rem;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      font-size: 0.95rem;
+      margin-bottom: 0.75rem;
+      font-family: inherit;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    .note-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .note-title { font-weight: 600; margin: 0 0 0.25rem 0; }
+    .note-body { white-space: pre-wrap; margin: 0.5rem 0 0 0; }
+    .status {
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      border: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Project Notes</h1>
+      <div class="muted" id="subtitle">Shared Cloudflare Worker + D1 Demo</div>
+    </div>
+    <div id="auth-actions">
+      <button id="sign-in-btn">Sign in with Google</button>
+      <button id="sign-out-btn" class="secondary hidden">Sign out</button>
+    </div>
+  </header>
+
+  <div id="status-box" class="status hidden"></div>
+
+  <section id="app-section" class="hidden">
+    <div class="card">
+      <form id="note-form">
+        <input type="text" id="note-title" placeholder="Note title" required />
+        <textarea id="note-body" placeholder="Write something..."></textarea>
+        <button type="submit">Add Note</button>
+      </form>
+    </div>
+
+    <div id="notes-list"></div>
+  </section>
+
+  <script>
+    // Replace with your deployed Cloudflare Worker URL
+    const WORKER_URL = "https://side-project-bridge.smosa.workers.dev";
+    const PROJECT_ID = "notes";
+    const TOKEN_KEY = "bridge_bearer_token";
+
+    const signInBtn = document.getElementById("sign-in-btn");
+    const signOutBtn = document.getElementById("sign-out-btn");
+    const appSection = document.getElementById("app-section");
+    const notesList = document.getElementById("notes-list");
+    const noteForm = document.getElementById("note-form");
+    const statusBox = document.getElementById("status-box");
+    const subtitle = document.getElementById("subtitle");
+
+    function showStatus(msg) {
+      if (!msg) {
+        statusBox.classList.add("hidden");
+        statusBox.textContent = "";
+        return;
+      }
+      statusBox.textContent = msg;
+      statusBox.classList.remove("hidden");
+    }
+
+    function getToken() {
+      return localStorage.getItem(TOKEN_KEY);
+    }
+
+    function setToken(token) {
+      if (token) localStorage.setItem(TOKEN_KEY, token);
+      else localStorage.removeItem(TOKEN_KEY);
+    }
+
+    async function apiFetch(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      if (!headers.has("Content-Type") && options.body) {
+        headers.set("Content-Type", "application/json");
+      }
+      const token = getToken();
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+      const res = await fetch(`${WORKER_URL}${path}`, {
+        ...options,
+        headers,
+        credentials: "include",
+      });
+      const newToken = res.headers.get("set-auth-token");
+      if (newToken) setToken(newToken);
+      return res;
+    }
+
+    async function handleHashAuthCode() {
+      if (!window.location.hash.startsWith("#auth_code=")) return;
+      const code = decodeURIComponent(
+        window.location.hash.slice("#auth_code=".length)
+      );
+      history.replaceState(null, "", window.location.pathname + window.location.search);
+      if (!code) return;
+
+      showStatus("Completing sign-in...");
+      const res = await apiFetch("/api/exchange", {
+        method: "POST",
+        body: JSON.stringify({ code }),
+      });
+      if (!res.ok) {
+        showStatus("Sign-in exchange failed or expired. Please try again.");
+        return;
+      }
+      const data = await res.json();
+      if (data.token) {
+        setToken(data.token);
+        showStatus("");
+      }
+    }
+
+    async function signInWithGoogle() {
+      showStatus("Redirecting to Google...");
+      const callbackURL = window.location.origin + window.location.pathname;
+      const res = await apiFetch("/api/auth/sign-in/social", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "google",
+          callbackURL,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        showStatus(data.message || data.error || "Could not start Google sign-in.");
+      }
+    }
+
+    async function signOut() {
+      await apiFetch("/api/auth/sign-out", { method: "POST" }).catch(() => {});
+      setToken(null);
+      renderSignedOut();
+    }
+
+    function renderSignedOut() {
+      signInBtn.classList.remove("hidden");
+      signOutBtn.classList.add("hidden");
+      appSection.classList.add("hidden");
+      subtitle.textContent = "Sign in to view and create your notes";
+      notesList.innerHTML = "";
+    }
+
+    async function loadSessionAndNotes() {
+      await handleHashAuthCode();
+      if (!getToken()) {
+        renderSignedOut();
+        return;
+      }
+
+      const meRes = await apiFetch(`/p/${PROJECT_ID}/me`);
+      if (!meRes.ok) {
+        if (meRes.status === 401) {
+          setToken(null);
+          renderSignedOut();
+          return;
+        }
+        const err = await meRes.json().catch(() => ({}));
+        showStatus(err.error || `Access error (${meRes.status})`);
+        signInBtn.classList.add("hidden");
+        signOutBtn.classList.remove("hidden");
+        return;
+      }
+
+      const { user } = await meRes.json();
+      subtitle.textContent = `Signed in as ${user.name} (${user.email})`;
+      signInBtn.classList.add("hidden");
+      signOutBtn.classList.remove("hidden");
+      appSection.classList.remove("hidden");
+      await loadNotes();
+    }
+
+    async function loadNotes() {
+      const res = await apiFetch(`/p/${PROJECT_ID}/notes`);
+      if (!res.ok) {
+        showStatus("Failed to load notes.");
+        return;
+      }
+      const { notes } = await res.json();
+      if (!notes.length) {
+        notesList.innerHTML = `<div class="card muted">No notes yet. Create your first note above!</div>`;
+        return;
+      }
+      notesList.innerHTML = "";
+      for (const note of notes) {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <div class="note-header">
+            <div>
+              <h3 class="note-title"></h3>
+              <div class="muted">${new Date(note.updated_at).toLocaleString()}</div>
+            </div>
+            <button class="danger" data-id="${note.id}">Delete</button>
+          </div>
+          <p class="note-body"></p>
+        `;
+        card.querySelector(".note-title").textContent = note.title;
+        card.querySelector(".note-body").textContent = note.body || "";
+        card.querySelector("button.danger").addEventListener("click", () => deleteNote(note.id));
+        notesList.appendChild(card);
+      }
+    }
+
+    async function deleteNote(noteId) {
+      const res = await apiFetch(`/p/${PROJECT_ID}/notes/${encodeURIComponent(noteId)}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        await loadNotes();
+      } else {
+        showStatus("Failed to delete note.");
+      }
+    }
+
+    noteForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const titleInput = document.getElementById("note-title");
+      const bodyInput = document.getElementById("note-body");
+      const res = await apiFetch(`/p/${PROJECT_ID}/notes`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: titleInput.value.trim(),
+          body: bodyInput.value.trim(),
+        }),
+      });
+      if (res.ok) {
+        titleInput.value = "";
+        bodyInput.value = "";
+        await loadNotes();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showStatus(err.error || "Failed to save note.");
+      }
+    });
+
+    signInBtn.addEventListener("click", signInWithGoogle);
+    signOutBtn.addEventListener("click", signOut);
+
+    loadSessionAndNotes();
+  </script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+.pi/
+node_modules/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+playwright-report/
+test-results/

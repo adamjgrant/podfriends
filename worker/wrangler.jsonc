@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "side-project-bridge",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "OWNER_EMAILS": "hello@adamgrant.me",
+    "ENABLE_EMAIL_PASSWORD": "false"
+  },
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "PROJECT_PODFRIENDS_DB",
+      "database_name": "project-podfriends",
+      "database_id": "0120dace-c7d4-43cb-8fcb-76cbf15ca13c",
+      "migrations_dir": "migrations/project-podfriends"
+    },
+    {
+      "binding": "AUTH_DB",
+      "database_name": "bridge-auth",
+      "database_id": "d7bbc1e1-f60a-4d3c-9276-8fc06adee8ee"
+    },
+    {
+      "binding": "PROJECT_NOTES_DB",
+      "database_name": "project-notes",
+      "database_id": "423c0518-7011-4f09-b788-2100f61736a0"
+    }
+  ]
+}
