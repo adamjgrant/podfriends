@@ -5,7 +5,7 @@
 - Frontend: https://adamjgrant.github.io/podfriends/
 - API: https://side-project-bridge.smosa.workers.dev
 - Static frontend source: `frontend/`, with no build step or server dependency.
-- GitHub Pages publishes the `gh-pages` branch. Cloudflare only runs the backend.
+- GitHub Pages deploys `frontend/` from `main` via `.github/workflows/pages.yml`. Cloudflare only runs the backend.
 - Database: `project-podfriends`, isolated from shared auth and Notes.
 - Matching and RSS checks run every 15 minutes. Matching also runs after profile/ranking saves.
 
@@ -39,10 +39,10 @@ For an isolated backend, run `npx wrangler d1 migrations apply project-podfriend
 After committing changes on `main`:
 
 ```sh
-git subtree push --prefix frontend origin gh-pages
+git push   # .github/workflows/pages.yml deploys frontend/ on pushes to main
 ```
 
-The repository must have GitHub Pages configured to publish the root of `gh-pages`.
+GitHub Pages must use the "GitHub Actions" source. The workflow needs `upload-pages-artifact@v4` with `deploy-pages@v4`; v3 of the upload action produced "No artifacts named github-pages" failures.
 
 When changing DOM elements required by `app.js`, bump `PAGE_VERSION` in `frontend/bootstrap.js` and the matching `data-app-version` and script `?v=` in `frontend/index.html`. The startup guard detects cached old HTML, reloads it once with a cache-busting query while preserving the OAuth hash, and refuses to initialize mismatched markup. Do not remove this guard: mismatched cached HTML previously crashed before the auth-code exchange and created a sign-in loop.
 

@@ -15,7 +15,7 @@ Ending a conversation closes it for both people without affecting their other ch
 
 ## Hosting
 
-- **Frontend:** Zero-build static HTML, CSS, and JavaScript in `frontend/`, published to GitHub Pages from `gh-pages`.
+- **Frontend:** Zero-build static HTML, CSS, and JavaScript in `frontend/`, published to GitHub Pages via the `main` branch workflow.
 - **Backend:** Shared Cloudflare Worker at `https://side-project-bridge.smosa.workers.dev`.
 - **Data:** Shared Google auth database plus an isolated `project-podfriends` D1 database.
 - **Jobs:** Cloudflare Cron for matching and RSS polling every 15 minutes; matching also runs after preferences are saved.
