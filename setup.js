@@ -1,4 +1,4 @@
-// Signup only needs favorite shows. Icebreakers unlock the group after matching.
+// Signup only needs favorite shows. Icebreakers unlock conversations after matching.
 export function setupComplete(me) {
   return !!me?.podcasts?.length;
 }

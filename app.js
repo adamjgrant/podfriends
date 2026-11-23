@@ -1,6 +1,7 @@
 import { searchPodcasts } from "./podcast-search.js";
 import { setupComplete, initialScreen } from "./setup.js?v=20261122-4";
-import { ensureCurrentPage } from "./bootstrap.js?v=20261122-4";
+import { ensureCurrentPage } from "./bootstrap.js?v=20261122-5";
+import { createPodcastPicker } from "./podcast-picker.js?v=20261122-5";
 
 function startApp() {
   const API = "https://side-project-bridge.smosa.workers.dev";
@@ -16,8 +17,9 @@ function startApp() {
   const $ = (id) => document.getElementById(id);
   let token = localStorage.getItem(KEY),
     me,
-    ranked = [],
     quartetId,
+    selectedChatId,
+    seenMessageIds = new Set(),
     cursor,
     polling = false,
     currentTab = "home",
@@ -82,6 +84,11 @@ function startApp() {
       .querySelectorAll("[data-tab]")
       .forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
     renderNavigation();
+    const heading = $(name).querySelector("h2");
+    if (heading) {
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    }
   }
   function renderNavigation() {
     const complete = setupComplete(me);
@@ -100,8 +107,8 @@ function startApp() {
       ? "Good news, we found your people!"
       : "Let them get to know you.";
     $("profile-description").textContent = me?.needs_icebreakers
-      ? "Before we introduce you, answer these three quick icebreakers. Your new group will see your answers when you join."
-      : "A few conversation starters, like meeting someone at a party. Your name and answers are shared with your quartet.";
+      ? "Before we introduce you, answer these three quick icebreakers. Your matches will see your answers when you start chatting."
+      : "A few conversation starters, like meeting someone at a party. Your name and answers are shared with your matches.";
     $("save-profile").textContent = me?.needs_icebreakers
       ? "Meet my Podfriends"
       : "Save my profile";
@@ -151,98 +158,54 @@ function startApp() {
     b.onclick = fn;
     return b;
   }
-  function podcastRow(p) {
-    const row = node("li", null, "podcast");
-    if (p.artwork_url?.startsWith("https://")) {
-      const img = node("img");
-      img.src = p.artwork_url;
-      img.alt = "";
-      img.loading = "lazy";
-      row.append(img);
-    }
-    const info = node("div", null, "info");
-    info.append(node("b", p.title), node("small", p.author));
-    row.append(info);
-    return row;
+  let toastTimer;
+  function toast(message, undo, actionLabel = "Undo") {
+    clearTimeout(toastTimer);
+    $("toast-message").textContent = message;
+    $("toast").hidden = false;
+    $("toast-undo").hidden = !undo;
+    $("toast-undo").textContent = actionLabel;
+    $("toast-undo").onclick = () => {
+      undo?.();
+      $("toast").hidden = true;
+    };
+    // Undo stays available until dismissed or replaced by a later action.
+    if (!undo)
+      toastTimer = setTimeout(() => {
+        $("toast").hidden = true;
+      }, 4500);
   }
-  function renderRankings() {
-    $("rankings").replaceChildren();
-    ranked.forEach((p, i) => {
-      const row = podcastRow(p);
-      row.prepend(node("strong", String(i + 1)));
-      row.append(
-        button(
-          "↑",
-          () => {
-            if (i > 0) {
-              [ranked[i - 1], ranked[i]] = [ranked[i], ranked[i - 1]];
-              renderRankings();
-            }
-          },
-          `Move ${p.title} up`,
-        ),
-        button(
-          "↓",
-          () => {
-            if (i < ranked.length - 1) {
-              [ranked[i + 1], ranked[i]] = [ranked[i], ranked[i + 1]];
-              renderRankings();
-            }
-          },
-          `Move ${p.title} down`,
-        ),
-        button(
-          "×",
-          () => {
-            ranked.splice(i, 1);
-            renderRankings();
-          },
-          `Remove ${p.title}`,
-        ),
-      );
-      $("rankings").append(row);
-    });
-  }
-  action(
-    $("search-form"),
-    async () => {
-      status("Searching podcasts...");
-      $("results").replaceChildren();
-      const d = await searchPodcasts($("search").value, (term) =>
-        api("/podcasts/search?q=" + encodeURIComponent(term)),
-      );
-      for (const p of d.podcasts) {
-        const row = podcastRow(p);
-        row.append(
-          button("Add", () => {
-            if (ranked.some((x) => x.id === p.id)) return;
-            if (ranked.length >= 20) {
-              status("Choose up to 20 favorites.", true);
-              return;
-            }
-            ranked.push(p);
-            renderRankings();
-            status(`${p.title} added. Save your favorites when you're ready.`);
-          }),
-        );
-        $("results").append(row);
-      }
-      status(
-        d.podcasts.length ? "" : "No shows found. Try a different search.",
-      );
-    },
-    "submit",
-  );
+  $("toast-close").onclick = () => {
+    $("toast").hidden = true;
+  };
+  const picker = createPodcastPicker({
+    document,
+    search: (term) =>
+      searchPodcasts(term, (q) =>
+        api("/podcasts/search?q=" + encodeURIComponent(q)),
+      ),
+    announce: toast,
+    onChange: () => status(),
+  });
   action($("save-rankings"), async () => {
-    if (!ranked.length)
-      throw new Error("Add at least one podcast so we can find your people.");
-    await api("/podcasts/rankings", "PUT", {
-      podcasts: ranked,
-      email_notifications_enabled: $("match-emails").checked,
-    });
-    await refresh();
-    tab(initialScreen(me));
-    status("Favorites saved. Matching runs now and every 15 minutes.");
+    const podcasts = picker.getPodcasts();
+    if (!podcasts.length) return;
+    picker.setBusy(true);
+    const label = $("save-rankings").textContent;
+    $("save-rankings").textContent = "Saving your favorites…";
+    try {
+      await api("/podcasts/rankings", "PUT", {
+        podcasts,
+        email_notifications_enabled: $("match-emails").checked,
+      });
+      picker.markSaved();
+      await refresh();
+      tab(initialScreen(me));
+      toast("Favorites saved. You're in the matching pool.");
+    } finally {
+      picker.setBusy(false);
+      $("save-rankings").textContent = label;
+    }
   });
   action(
     $("profile-form"),
@@ -257,7 +220,7 @@ function startApp() {
       $("match-emails").checked = $("emails").checked;
       await refresh();
       tab(initialScreen(me));
-      status("Profile saved.");
+      toast("Your introduction is ready. Welcome in!");
     },
     "submit",
   );
@@ -271,8 +234,7 @@ function startApp() {
     $("workspace").hidden = false;
     $("signout").hidden = false;
     if (initial) {
-      ranked = me.podcasts;
-      renderRankings();
+      picker.initialize(me.podcasts, me.user.id);
       $("display-name").value = me.profile?.display_name || me.user.name || "";
       const answers = JSON.parse(me.profile?.icebreakers_json || "{}");
       for (const [key] of ICEBREAKERS) $(key).value = answers[key] || "";
@@ -283,20 +245,89 @@ function startApp() {
     // A newly discovered match interrupts waiting, not an in-progress icebreaker form.
     if (!initial && me.needs_icebreakers && !wasLocked) {
       $("emails").checked = !!me.profile?.email_notifications_enabled;
-      tab("profile");
+      if (currentTab === "home") tab("profile");
+      else
+        toast(
+          "Good news, a match is ready!",
+          () => tab("profile"),
+          "Meet your match",
+        );
     } else if (!initial && wasLocked && !me.needs_icebreakers)
       tab(initialScreen(me));
     $("waiting").hidden = !!me.quartet || !!me.needs_icebreakers;
     $("quartet").hidden = !me.quartet;
     renderNavigation();
-    if (me.quartet) {
-      if (quartetId !== me.quartet.id) {
-        quartetId = me.quartet.id;
+    $("waiting-shows").replaceChildren();
+    for (const podcast of me.podcasts.slice(0, 6)) {
+      if (podcast.artwork_url?.startsWith("https://")) {
+        const img = node("img");
+        img.src = podcast.artwork_url;
+        img.alt = podcast.title;
+        img.title = podcast.title;
+        $("waiting-shows").append(img);
+      }
+    }
+    const chats = me.chats || (me.quartet ? [me.quartet] : []);
+    $("conversations").hidden = !chats.length;
+    $("chat-list").replaceChildren();
+    const activeChat =
+      chats.find((chat) => chat.id === selectedChatId) || chats[0];
+    for (const chat of chats) {
+      const card = button("", async () => {
+        selectedChatId = chat.id;
+        try {
+          await refresh();
+          tab("home");
+        } catch (e) {
+          status(e.message, true);
+        }
+      });
+      card.className =
+        "conversation-card" + (activeChat?.id === chat.id ? " active" : "");
+      card.setAttribute("aria-pressed", String(activeChat?.id === chat.id));
+      const name = chat.partner?.display_name || "Your new Podfriend";
+      card.append(
+        node("span", name.slice(0, 1).toUpperCase(), "avatar"),
+        node("b", name),
+      );
+      const shared = chat.shared_podcasts || [];
+      card.append(
+        node(
+          "small",
+          shared.length
+            ? shared.map((p) => p.title).join(" · ")
+            : "A shared love of podcasts",
+        ),
+      );
+      const badge = node(
+        "span",
+        `${shared.length || 1} shared ${shared.length === 1 ? "show" : "shows"}`,
+        "overlap-badge",
+      );
+      badge.title =
+        "Matches are ranked by overlap across your favorites, with more weight on your top picks.";
+      card.append(badge);
+      $("chat-list").append(card);
+    }
+    if (activeChat) {
+      if (quartetId !== activeChat.id) {
+        quartetId = activeChat.id;
         cursor = null;
+        seenMessageIds.clear();
+        $("new-messages").hidden = true;
         $("messages").replaceChildren();
       }
-      const d = await api(`/quartets/${quartetId}`);
-      $("quartet-name").textContent = d.quartet.name;
+      const requestedId = quartetId;
+      const d = await api(`/quartets/${requestedId}`);
+      if (requestedId !== quartetId) return;
+      $("quartet-name").textContent =
+        activeChat.partner?.display_name ||
+        d.members.find((m) => m.user_id !== me.user.id)?.display_name ||
+        "Your new Podfriend";
+      $("chat-empty").textContent =
+        activeChat.partner?.onboarding_completed === 0
+          ? "Your match is finishing their introduction. Leave a hello for when they're ready."
+          : "Your conversation starts here. Say hello or share what you loved about a recent episode.";
       $("members").replaceChildren();
       for (const m of d.members) {
         $("members").append(
@@ -325,6 +356,22 @@ function startApp() {
     }
   }
   $("close-dialog").onclick = () => $("bio-dialog").close();
+  $("new-messages").onclick = () => {
+    $("messages").scrollTop = $("messages").scrollHeight;
+    $("new-messages").hidden = true;
+  };
+  $("messages").addEventListener("scroll", () => {
+    const box = $("messages");
+    if (box.scrollHeight - box.scrollTop - box.clientHeight < 100)
+      $("new-messages").hidden = true;
+  });
+  $("profile-form").addEventListener("input", () => {
+    const answered = ICEBREAKERS.filter(([key]) => $(key).value.trim()).length;
+    $("icebreaker-progress").textContent =
+      answered === 3
+        ? "You're ready to make your introduction."
+        : `${answered} of 3 icebreakers answered. A sentence or two is plenty.`;
+  });
   async function messages() {
     if (!quartetId) return;
     const id = quartetId;
@@ -336,6 +383,8 @@ function startApp() {
     const box = $("messages"),
       bottom = box.scrollHeight - box.scrollTop - box.clientHeight < 100;
     for (const m of d.messages) {
+      if (seenMessageIds.has(m.id)) continue;
+      seenMessageIds.add(m.id);
       const el = node(
         "article",
         null,
@@ -366,7 +415,9 @@ function startApp() {
       box.append(el);
       cursor = m.id;
     }
+    $("chat-empty").hidden = !!box.children.length;
     if (bottom) box.scrollTop = box.scrollHeight;
+    else if (d.messages.length) $("new-messages").hidden = false;
   }
   action(
     $("message-form"),
@@ -379,16 +430,13 @@ function startApp() {
     },
     "submit",
   );
-  action($("leave"), async () => {
-    if (
-      !confirm(
-        "Leave this quartet? You will re-enter matching at the next scheduled run and could match with this group again.",
-      )
-    )
-      return;
+  $("leave").onclick = () => $("leave-dialog").showModal();
+  $("cancel-leave").onclick = () => $("leave-dialog").close();
+  action($("confirm-leave"), async () => {
     await api(`/quartets/${quartetId}/leave`, "POST", {});
+    $("leave-dialog").close();
     await refresh();
-    status("You left the quartet.");
+    toast("Conversation ended. Your other connections are still here.");
   });
   let ticks = 0;
   setInterval(async () => {
