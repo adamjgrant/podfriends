@@ -45,7 +45,9 @@
         </div>
       </section>
       <section id="workspace" hidden>
-        <nav>
+        <p id="setup-progress" class="eyebrow" role="status" hidden></p>
+        <button id="setup-back" class="quiet" hidden>Back</button>
+        <nav id="main-nav" hidden>
           <button data-tab="home">Your quartet</button
           ><button data-tab="podcasts">Your podcasts</button
           ><button data-tab="profile">Your profile</button>
@@ -53,12 +55,13 @@
         <section id="home" class="panel">
           <div id="waiting">
             <p class="eyebrow">A LITTLE GROUP. A LOT IN COMMON.</p>
-            <h2>Your people are out there.</h2>
+            <h2>You're all set. We're finding your people.</h2>
             <p id="waiting-text">
-              Finish your profile and rank your favorite podcasts. We'll look
-              for fellow listeners every 15 minutes.
+              We'll match you with a few people who love the same shows. Check
+              back soon. Your group will appear here when it's ready.
             </p>
-            <button id="setup">Set up my profile</button>
+            <button id="edit-podcasts" class="quiet">Edit my podcasts</button>
+            <button id="edit-profile" class="quiet">Edit my profile</button>
           </div>
           <div id="quartet" hidden>
             <div class="heading">
@@ -105,27 +108,42 @@
           <div id="results"></div>
           <h3>Your listening list</h3>
           <ol id="rankings"></ol>
-          <button id="save-rankings">Save favorites & find friends</button>
+          <button id="save-rankings">Finish setup & find my people</button>
         </section>
         <section id="profile" class="panel" hidden>
           <p class="eyebrow">A HELLO BEFORE THE HELLO</p>
           <h2>Let them get to know you.</h2>
-          <p>Your name and icebreakers are shared with your quartet.</p>
+          <p>
+            A few conversation starters, like meeting someone at a party. Your
+            name and answers are shared with your quartet.
+          </p>
           <form id="profile-form">
             <label for="display-name">What should we call you?</label
             ><input id="display-name" maxlength="80" required /><label
-              for="favorite_episode"
-              >Your all-time favorite episode (and why)?</label
+              for="day_off"
+              >What's your idea of a great day off?</label
             ><textarea
-              id="favorite_episode"
+              id="day_off"
               maxlength="1000"
+              placeholder="A slow breakfast, a hike with friends, or absolutely no plans..."
               required
             ></textarea
-            ><label for="listening_habit"
-              >When and where do you usually listen?</label
-            ><textarea id="listening_habit" maxlength="1000" required></textarea
-            ><label for="bio">A little about you outside of podcasts</label
-            ><textarea id="bio" maxlength="1000" required></textarea
+            ><label for="talk_for_hours"
+              >What's something you could happily talk about for hours?</label
+            ><textarea
+              id="talk_for_hours"
+              maxlength="1000"
+              placeholder="A hobby, a niche obsession, a surprisingly strong opinion..."
+              required
+            ></textarea
+            ><label for="small_joy"
+              >What's a small thing that always makes your day?</label
+            ><textarea
+              id="small_joy"
+              maxlength="1000"
+              placeholder="A great cup of coffee, a dog saying hello, an unexpected text..."
+              required
+            ></textarea
             ><label class="check"
               ><input id="emails" type="checkbox" /> Email me about matches and
               new members</label
@@ -134,7 +152,7 @@
               Email delivery is not enabled yet. You can still check for matches
               here.
             </p>
-            <button>Save my profile</button>
+            <button id="save-profile">Continue to podcasts</button>
           </form>
         </section>
       </section>
