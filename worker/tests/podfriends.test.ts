@@ -49,7 +49,11 @@ function database(schema: string) {
 }
 test("full MVP: profile, rankings, matching, membership, chat, leave, RSS deduplication", async () => {
   const { db, sql } = database(
-    readFileSync("migrations/project-podfriends/0001_init.sql", "utf8"),
+    readFileSync("migrations/project-podfriends/0001_init.sql", "utf8") +
+      readFileSync(
+        "migrations/project-podfriends/0002_deferred_icebreakers.sql",
+        "utf8",
+      ),
   );
   const auth = database("CREATE TABLE user(id TEXT,email TEXT)");
   const env: any = { PROJECT_PODFRIENDS_DB: db, AUTH_DB: auth.db };
@@ -295,6 +299,140 @@ test("full MVP: profile, rankings, matching, membership, chat, leave, RSS dedupl
   }
   assert.equal((await call(`/quartets/${id}/leave`, "POST", {})).status, 200);
   assert.equal((await call(`/quartets/${id}/messages`)).status, 404);
+
+  // New signup: no profile form, only favorite shows. Both draft profiles must match.
+  for (const uid of ["new-a", "new-b"]) {
+    assert.equal(
+      (
+        await call(
+          "/podcasts/rankings",
+          "PUT",
+          {
+            podcasts: [
+              {
+                id: "999",
+                title: "New Show",
+                feed_url: "https://example.com/new",
+              },
+            ],
+            email_notifications_enabled: true,
+          },
+          uid,
+        )
+      ).status,
+      200,
+    );
+    await Promise.all(tasks.splice(0));
+  }
+  const locked = (await (
+    await call("/me", "GET", undefined, "new-a")
+  ).json()) as any;
+  assert.equal(locked.profile.onboarding_completed, 0);
+  assert.equal(locked.match_found, true);
+  assert.equal(locked.needs_icebreakers, true);
+  assert.equal(locked.quartet, null);
+  const newId = sql
+    .prepare("SELECT quartet_id FROM quartet_members WHERE user_id=?")
+    .get("new-a")!.quartet_id;
+  for (const path of [`/quartets/${newId}`, `/quartets/${newId}/messages`]) {
+    assert.equal((await call(path, "GET", undefined, "new-a")).status, 403);
+  }
+  assert.equal(
+    (
+      await call(
+        `/quartets/${newId}/messages`,
+        "POST",
+        { body: "Not yet" },
+        "new-a",
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    sql
+      .prepare("SELECT count(*) AS n FROM messages WHERE quartet_id=?")
+      .get(newId)!.n,
+    0,
+  );
+  assert.equal(
+    sql
+      .prepare(
+        "SELECT count(*) AS n FROM email_log WHERE event_type='match_found' AND user_id LIKE 'new-%'",
+      )
+      .get()!.n,
+    2,
+  );
+  await match(env);
+  assert.equal(
+    sql
+      .prepare(
+        "SELECT count(*) AS n FROM email_log WHERE event_type='match_found' AND user_id LIKE 'new-%'",
+      )
+      .get()!.n,
+    2,
+  );
+  for (const uid of ["new-a", "new-b"]) {
+    assert.equal(
+      (
+        await call(
+          "/profile",
+          "PUT",
+          {
+            display_name: uid,
+            icebreakers: {
+              day_off: "Hiking",
+              talk_for_hours: "Cooking",
+              small_joy: "Coffee",
+            },
+            email_notifications_enabled: true,
+          },
+          uid,
+        )
+      ).status,
+      200,
+    );
+    await Promise.all(tasks.splice(0));
+    const unlocked = (await (
+      await call("/me", "GET", undefined, uid)
+    ).json()) as any;
+    assert.equal(unlocked.needs_icebreakers, false);
+    assert.equal(unlocked.quartet.id, newId);
+    assert.equal(
+      (await call(`/quartets/${newId}`, "GET", undefined, uid)).status,
+      200,
+    );
+    if (uid === "new-a") {
+      const details = (await (
+        await call(`/quartets/${newId}`, "GET", undefined, uid)
+      ).json()) as any;
+      assert.equal(details.members.length, 1);
+      assert.equal(
+        sql
+          .prepare(
+            "SELECT count(*) AS n FROM email_log WHERE user_id='new-b' AND event_type='member_joined'",
+          )
+          .get()!.n,
+        0,
+      );
+    }
+  }
+  assert.equal(
+    sql
+      .prepare("SELECT count(*) AS n FROM messages WHERE quartet_id=?")
+      .get(newId)!.n,
+    2,
+  );
+  assert.equal(
+    (
+      await call(
+        `/quartets/${newId}/messages`,
+        "POST",
+        { body: "Hello!" },
+        "new-a",
+      )
+    ).status,
+    201,
+  );
 });
 test("URL and XML safety", () => {
   for (const u of [

@@ -1,6 +1,6 @@
 import { searchPodcasts } from "./podcast-search.js";
-import { setupComplete, initialScreen } from "./setup.js";
-import { ensureCurrentPage } from "./bootstrap.js";
+import { setupComplete, initialScreen } from "./setup.js?v=20261122-4";
+import { ensureCurrentPage } from "./bootstrap.js?v=20261122-4";
 
 function startApp() {
   const API = "https://side-project-bridge.smosa.workers.dev";
@@ -86,24 +86,28 @@ function startApp() {
   function renderNavigation() {
     const complete = setupComplete(me);
     $("main-nav").hidden = !me?.quartet;
-    $("setup-progress").hidden = complete;
+    $("setup-progress").hidden = complete || !!me?.needs_icebreakers;
     $("setup-progress").textContent =
-      currentTab === "profile"
-        ? "STEP 1 OF 2 · A LITTLE ABOUT YOU"
-        : "STEP 2 OF 2 · YOUR FAVORITE SHOWS";
+      "PICK YOUR SHOWS. WE'LL FIND YOUR PEOPLE.";
     $("setup-back").hidden =
       !!me?.quartet ||
       currentTab === "home" ||
-      (!complete && currentTab === "profile");
-    $("setup-back").textContent = complete
-      ? "Back to matching"
-      : "Back to profile";
-    $("save-profile").textContent = complete
-      ? "Save my profile"
-      : "Continue to podcasts";
+      !complete ||
+      !!me?.needs_icebreakers;
+    $("setup-back").textContent = "Back to matching";
+    $("edit-profile").hidden = !me?.profile?.onboarding_completed;
+    $("profile-heading").textContent = me?.needs_icebreakers
+      ? "Good news, we found your people!"
+      : "Let them get to know you.";
+    $("profile-description").textContent = me?.needs_icebreakers
+      ? "Before we introduce you, answer these three quick icebreakers. Your new group will see your answers when you join."
+      : "A few conversation starters, like meeting someone at a party. Your name and answers are shared with your quartet.";
+    $("save-profile").textContent = me?.needs_icebreakers
+      ? "Meet my Podfriends"
+      : "Save my profile";
     $("save-rankings").textContent = complete
       ? "Save my podcasts"
-      : "Finish setup & find my people";
+      : "Find my people";
   }
   document
     .querySelectorAll("[data-tab]")
@@ -232,15 +236,17 @@ function startApp() {
   action($("save-rankings"), async () => {
     if (!ranked.length)
       throw new Error("Add at least one podcast so we can find your people.");
-    await api("/podcasts/rankings", "PUT", { podcasts: ranked });
+    await api("/podcasts/rankings", "PUT", {
+      podcasts: ranked,
+      email_notifications_enabled: $("match-emails").checked,
+    });
     await refresh();
-    tab("home");
+    tab(initialScreen(me));
     status("Favorites saved. Matching runs now and every 15 minutes.");
   });
   action(
     $("profile-form"),
     async () => {
-      const wasComplete = setupComplete(me);
       await api("/profile", "PUT", {
         display_name: $("display-name").value,
         icebreakers: Object.fromEntries(
@@ -248,16 +254,18 @@ function startApp() {
         ),
         email_notifications_enabled: $("emails").checked,
       });
+      $("match-emails").checked = $("emails").checked;
       await refresh();
-      tab(wasComplete ? "home" : "podcasts");
+      tab(initialScreen(me));
       status("Profile saved.");
     },
     "submit",
   );
   $("edit-profile").onclick = () => tab("profile");
   $("edit-podcasts").onclick = () => tab("podcasts");
-  $("setup-back").onclick = () => tab(setupComplete(me) ? "home" : "profile");
+  $("setup-back").onclick = () => tab("home");
   async function refresh(initial = false) {
+    const wasLocked = !!me?.needs_icebreakers;
     me = await api("/me");
     $("welcome").hidden = true;
     $("workspace").hidden = false;
@@ -269,9 +277,16 @@ function startApp() {
       const answers = JSON.parse(me.profile?.icebreakers_json || "{}");
       for (const [key] of ICEBREAKERS) $(key).value = answers[key] || "";
       $("emails").checked = !!me.profile?.email_notifications_enabled;
+      $("match-emails").checked = !!me.profile?.email_notifications_enabled;
       tab(initialScreen(me));
     }
-    $("waiting").hidden = !!me.quartet;
+    // A newly discovered match interrupts waiting, not an in-progress icebreaker form.
+    if (!initial && me.needs_icebreakers && !wasLocked) {
+      $("emails").checked = !!me.profile?.email_notifications_enabled;
+      tab("profile");
+    } else if (!initial && wasLocked && !me.needs_icebreakers)
+      tab(initialScreen(me));
+    $("waiting").hidden = !!me.quartet || !!me.needs_icebreakers;
     $("quartet").hidden = !me.quartet;
     renderNavigation();
     if (me.quartet) {

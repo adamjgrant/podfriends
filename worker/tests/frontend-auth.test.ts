@@ -114,6 +114,83 @@ test("old markup reloads once, preserving the OAuth code, rather than crashing o
     dom.window.close();
   }
 });
+test("a new user chooses shows immediately, without icebreakers", async () => {
+  const dom = page();
+  const w = dom.window;
+  try {
+    w.localStorage.setItem("podfriends_token", "session");
+    w.fetch = async () =>
+      new Response(JSON.stringify({ ...me, profile: null }));
+    w.eval(await bundle);
+    await delay();
+    assert.equal(w.document.getElementById("podcasts")!.hidden, false);
+    assert.equal(w.document.getElementById("profile")!.hidden, true);
+    assert.equal(w.document.getElementById("main-nav")!.hidden, true);
+  } finally {
+    dom.window.close();
+  }
+});
+test("a matched user completes icebreakers before any group details are fetched", async () => {
+  const dom = page();
+  const w = dom.window;
+  let completed = false;
+  const calls: string[] = [];
+  try {
+    w.localStorage.setItem("podfriends_token", "session");
+    w.fetch = async (url, options) => {
+      const path = new URL(String(url)).pathname;
+      calls.push(path);
+      if (path.endsWith("/profile")) {
+        completed = true;
+        return new Response("{}");
+      }
+      if (path.endsWith("/me"))
+        return new Response(
+          JSON.stringify({
+            ...me,
+            podcasts: [{ id: "123", title: "Show" }],
+            profile: { ...me.profile, onboarding_completed: completed ? 1 : 0 },
+            match_found: true,
+            needs_icebreakers: !completed,
+            quartet: completed ? { id: "q" } : null,
+          }),
+        );
+      if (path.endsWith("/messages"))
+        return new Response(JSON.stringify({ messages: [] }));
+      return new Response(
+        JSON.stringify({ quartet: { name: "Test quartet" }, members: [] }),
+      );
+    };
+    w.eval(await bundle);
+    await delay();
+    assert.equal(w.document.getElementById("profile")!.hidden, false);
+    assert.match(
+      w.document.getElementById("profile-heading")!.textContent!,
+      /Good news/,
+    );
+    assert.equal(w.document.getElementById("main-nav")!.hidden, true);
+    assert.equal(
+      calls.some((p) => p.includes("/quartets/")),
+      false,
+    );
+    for (const id of ["day_off", "talk_for_hours", "small_joy"])
+      w.document.getElementById(id)!.value = "Hello";
+    w.document
+      .getElementById("profile-form")!
+      .dispatchEvent(
+        new w.Event("submit", { bubbles: true, cancelable: true }),
+      );
+    await delay();
+    assert.equal(completed, true);
+    assert.equal(w.document.getElementById("home")!.hidden, false);
+    assert.equal(w.document.getElementById("quartet")!.hidden, false);
+    assert.equal(w.document.getElementById("main-nav")!.hidden, false);
+    assert.ok(calls.includes("/p/podfriends/quartets/q"));
+  } finally {
+    dom.window.close();
+  }
+});
+
 test("expired sessions return an actionable error and allow sign-in again", async () => {
   const dom = page();
   const w = dom.window;

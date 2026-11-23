@@ -34,12 +34,17 @@ const active = (db: D1Database, user: string) =>
 app.get("/me", async (c) => {
   const db = c.get("projectDb"),
     user = c.get("user");
+  const profile = await db
+    .prepare("SELECT * FROM profiles WHERE user_id=?")
+    .bind(user.id)
+    .first();
+  const quartet = await active(db, user.id);
+  const needsIcebreakers = !!quartet && !profile?.onboarding_completed;
   return c.json({
     user,
-    profile: await db
-      .prepare("SELECT * FROM profiles WHERE user_id=?")
-      .bind(user.id)
-      .first(),
+    profile,
+    match_found: !!quartet,
+    needs_icebreakers: needsIcebreakers,
     podcasts: (
       await db
         .prepare(
@@ -48,7 +53,7 @@ app.get("/me", async (c) => {
         .bind(user.id)
         .all()
     ).results,
-    quartet: await active(db, user.id),
+    quartet: needsIcebreakers ? null : quartet,
   });
 });
 app.put("/profile", async (c) => {
@@ -118,7 +123,7 @@ app.get("/podcasts/search", async (c) => {
   });
 });
 app.put("/podcasts/rankings", async (c) => {
-  const { podcasts } = await c.req.json();
+  const { podcasts, email_notifications_enabled } = await c.req.json();
   if (
     !Array.isArray(podcasts) ||
     podcasts.length > 20 ||
@@ -138,6 +143,20 @@ app.put("/podcasts/rankings", async (c) => {
   const db = c.get("projectDb"),
     uid = c.get("user").id;
   await db.batch([
+    db
+      .prepare(
+        "INSERT INTO profiles (user_id,display_name,created_at,updated_at,email_notifications_enabled) VALUES (?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET email_notifications_enabled=COALESCE(?,profiles.email_notifications_enabled)",
+      )
+      .bind(
+        uid,
+        text(c.get("user").name, 80) || "Podfriend",
+        now(),
+        now(),
+        email_notifications_enabled === true ? 1 : 0,
+        typeof email_notifications_enabled === "boolean"
+          ? Number(email_notifications_enabled)
+          : null,
+      ),
     db.prepare("DELETE FROM user_podcasts WHERE user_id=?").bind(uid),
     ...podcasts.flatMap((p, i) => [
       db
@@ -184,6 +203,22 @@ app.use("/quartets/:id/*", async (c, next) => {
     .bind(c.req.param("id"), c.get("user").id)
     .first();
   if (!member) return c.json({ error: "Quartet not found" }, 404);
+  // Leaving is always allowed, but matches and messages stay private until icebreakers are complete.
+  if (!(c.req.method === "POST" && c.req.path.endsWith("/leave"))) {
+    const profile = await c
+      .get("projectDb")
+      .prepare("SELECT onboarding_completed FROM profiles WHERE user_id=?")
+      .bind(c.get("user").id)
+      .first();
+    if (!profile?.onboarding_completed)
+      return c.json(
+        {
+          error: "Complete your icebreakers to meet your quartet.",
+          code: "ICEBREAKERS_REQUIRED",
+        },
+        403,
+      );
+  }
   await next();
 });
 app.get("/quartets/:id", async (c) => {
@@ -199,7 +234,7 @@ app.get("/quartets/:id", async (c) => {
     members: (
       await db
         .prepare(
-          "SELECT p.* FROM profiles p JOIN quartet_members m ON m.user_id=p.user_id WHERE m.quartet_id=? ORDER BY m.joined_at",
+          "SELECT p.* FROM profiles p JOIN quartet_members m ON m.user_id=p.user_id WHERE m.quartet_id=? AND p.onboarding_completed=1 ORDER BY m.joined_at",
         )
         .bind(id)
         .all()
@@ -325,7 +360,7 @@ export async function match(env: Env) {
   const eligible = (
     await db
       .prepare(
-        "SELECT p.user_id FROM profiles p WHERE onboarding_completed=1 AND EXISTS (SELECT 1 FROM user_podcasts WHERE user_id=p.user_id) AND NOT EXISTS (SELECT 1 FROM quartet_members m JOIN quartets q ON q.id=m.quartet_id WHERE m.user_id=p.user_id AND q.status='active') ORDER BY p.created_at LIMIT 100",
+        "SELECT p.user_id FROM profiles p WHERE EXISTS (SELECT 1 FROM user_podcasts WHERE user_id=p.user_id) AND NOT EXISTS (SELECT 1 FROM quartet_members m JOIN quartets q ON q.id=m.quartet_id WHERE m.user_id=p.user_id AND q.status='active') ORDER BY p.created_at LIMIT 100",
       )
       .all<{ user_id: string }>()
   ).results;
@@ -340,7 +375,7 @@ export async function match(env: Env) {
     if (!q) {
       const peer = await db
         .prepare(
-          "SELECT v.user_id,u.podcast_id,p.title FROM user_podcasts u JOIN user_podcasts v ON v.podcast_id=u.podcast_id AND v.user_id!=u.user_id JOIN profiles f ON f.user_id=v.user_id JOIN podcasts p ON p.id=u.podcast_id WHERE u.user_id=? AND f.onboarding_completed=1 AND NOT EXISTS (SELECT 1 FROM quartet_members m JOIN quartets q ON q.id=m.quartet_id WHERE m.user_id=v.user_id AND q.status='active') ORDER BY (u.rank+v.rank),v.user_id LIMIT 1",
+          "SELECT v.user_id,u.podcast_id,p.title FROM user_podcasts u JOIN user_podcasts v ON v.podcast_id=u.podcast_id AND v.user_id!=u.user_id JOIN profiles f ON f.user_id=v.user_id JOIN podcasts p ON p.id=u.podcast_id WHERE u.user_id=? AND NOT EXISTS (SELECT 1 FROM quartet_members m JOIN quartets q ON q.id=m.quartet_id WHERE m.user_id=v.user_id AND q.status='active') ORDER BY (u.rank+v.rank),v.user_id LIMIT 1",
         )
         .bind(uid)
         .first<{ user_id: string; podcast_id: string; title: string }>();
@@ -374,10 +409,27 @@ export async function match(env: Env) {
         .bind(q.id, uid, now())
         .run();
   }
+  // Claim each match announcement once, independently of profile completion.
+  const announcements = (
+    await db
+      .prepare(
+        "UPDATE quartet_members SET match_notified=1 WHERE match_notified=0 AND quartet_id IN (SELECT id FROM quartets WHERE status='active') RETURNING user_id",
+      )
+      .all<{ user_id: string }>()
+  ).results;
+  for (const member of announcements) {
+    await notify(
+      env,
+      member.user_id,
+      "match_found",
+      "Good news, we found your Podfriends!",
+      "You have been matched with fellow listeners. Open Podfriends to finish your icebreakers and meet your group.",
+    );
+  }
   const pending = (
     await db
       .prepare(
-        "SELECT m.quartet_id,p.* FROM quartet_members m JOIN profiles p ON p.user_id=m.user_id WHERE m.intro_posted=0",
+        "SELECT m.quartet_id,p.* FROM quartet_members m JOIN profiles p ON p.user_id=m.user_id WHERE m.intro_posted=0 AND p.onboarding_completed=1",
       )
       .all<any>()
   ).results;
@@ -404,17 +456,10 @@ export async function match(env: Env) {
       .bind(p.quartet_id, p.user_id)
       .run();
     if (result.meta.changes) {
-      await notify(
-        env,
-        p.user_id,
-        "match_found",
-        "Your Podfriends quartet is ready",
-        body,
-      );
       const members = (
         await db
           .prepare(
-            "SELECT user_id FROM quartet_members WHERE quartet_id=? AND user_id!=?",
+            "SELECT m.user_id FROM quartet_members m JOIN profiles p ON p.user_id=m.user_id WHERE m.quartet_id=? AND m.user_id!=? AND p.onboarding_completed=1",
           )
           .bind(p.quartet_id, p.user_id)
           .all<{ user_id: string }>()

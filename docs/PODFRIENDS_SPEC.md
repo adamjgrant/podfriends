@@ -115,14 +115,16 @@ CREATE TABLE IF NOT EXISTS email_log (
 ## 4. Core Product Flows & Rules
 
 ### A. Onboarding & Icebreakers
-Users must complete onboarding (their display name + icebreaker answers) before participating in a quartet chat. Default icebreaker questions:
+Signup only requires Google sign-in and ranked podcasts. Saving rankings creates a draft profile using the Google display name; no icebreaker answers are required for matching. After a match, users complete their display name and icebreakers before the API reveals any quartet details, member profiles, or chat messages. Default icebreaker questions:
 1. `day_off`: *"What's your idea of a great day off?"*
 2. `talk_for_hours`: *"What's something you could happily talk about for hours?"*
 3. `small_joy`: *"What's a small thing that always makes your day?"*
 
 These are general, party-style conversation starters, not podcast questions. Existing profiles retain their old answers and labels until updated; old answers are never relabeled as responses to the new questions.
 
-When a user completes onboarding or joins a quartet:
+A generic match announcement is sent when a quartet is assigned, independently of profile completion. Migration `0002_deferred_icebreakers.sql` adds `quartet_members.match_notified` to prevent duplicate announcements.
+
+When a matched user completes onboarding:
 - Their answers are visible on their **Profile** (and clickable from any member list in a quartet).
 - A `system_intro` message is inserted into the quartet's `messages` table with their biographical details.
 - Existing quartet members receive a `member_joined` email containing the new member's name and icebreakers.
@@ -134,7 +136,7 @@ When a user completes onboarding or joins a quartet:
   - Periodically via Cloudflare Cron Trigger (e.g., `*/15 * * * *` in `wrangler.jsonc`).
   - Also safe to trigger on-demand right after a user saves their podcast rankings.
 - **Matching algorithm**:
-  1. Find eligible users (`onboarding_completed = 1`, has ≥ 1 row in `user_podcasts`, and not in any `active` quartet).
+  1. Find eligible users (has a draft or completed profile, has at least one row in `user_podcasts`, and is not in any `active` quartet). Icebreakers are not a matching prerequisite.
   2. First, try to place each eligible user into an existing `active` quartet that has `< 4` members for one of the user's ranked podcasts (preferring their lowest `rank` number, i.e., #1 favorite first).
   3. Next, among remaining eligible users, group 2–4 users who share a podcast (again prioritizing highest average rank) and create a new `quartets` row + `quartet_members` rows.
   4. Send `match_found` emails to newly matched users (especially important for users who signed up earlier and waited).
@@ -155,7 +157,7 @@ When a user completes onboarding or joins a quartet:
 
 All routes below inherit the `/p/:projectId/*` auth middleware in `worker/src/index.ts` (so `c.get("user")` and `c.get("projectDb")` are already populated).
 
-- `GET /p/podfriends/me` — Returns current user, `profile`, ranked `user_podcasts`, and current active `quartet` (if any).
+- `GET /p/podfriends/me` — Returns current user, `profile`, ranked `user_podcasts`, `match_found`, and `needs_icebreakers`. The active `quartet` is returned only after onboarding is complete; otherwise it is `null`.
 - `PUT /p/podfriends/profile` — Updates `display_name`, `icebreakers_json`, `email_notifications_enabled`, and sets `onboarding_completed = 1`.
 - `GET /p/podfriends/podcasts/search?q=...` — Queries iTunes Search API and returns normalized podcast results.
 - `PUT /p/podfriends/podcasts/rankings` — Upserts selected podcasts into `podcasts` and replaces the user's `user_podcasts` with their ordered list (`rank` 1..N). Optionally runs matching immediately.

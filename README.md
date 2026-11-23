@@ -23,7 +23,8 @@ Podfriends matches listeners with overlapping favorite shows into small, cozy **
 - Keeping groups capped at 4 avoids noisy mega-chats and makes it easy for everyone to actually get to know each other.
 
 ### 3. Onboarding & Icebreaker Introductions
-- Before entering a group chat, each member completes a quick **onboarding step** answering **icebreaker questions** (e.g., favorite episode, how they got into the show, a bit about themselves).
+- Signup only requires signing in and choosing podcasts. **Icebreakers wait until after a match**, so they don't slow down signup.
+- Once matched, members see a congratulatory screen and answer three personal icebreakers (a great day off, a favorite conversation topic, and a small joy) before seeing their matches or entering the group chat.
 - Those answers are saved to their **profile** so anyone in the chat can view them anytime.
 - Whenever someone is added to a quartet, the **other members in the chat are automatically notified** with a welcome/intro message sharing those biographical details.
 

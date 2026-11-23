@@ -1,9 +1,11 @@
+// Signup only needs favorite shows. Icebreakers unlock the group after matching.
 export function setupComplete(me) {
-  return !!me?.profile?.onboarding_completed && !!me?.podcasts?.length;
+  return !!me?.podcasts?.length;
 }
 
 export function initialScreen(me) {
-  if (!me?.profile?.onboarding_completed) return "profile";
-  if (!me?.podcasts?.length) return "podcasts";
+  if (me?.needs_icebreakers) return "profile";
+  if (me?.quartet) return "home";
+  if (!setupComplete(me)) return "podcasts";
   return "home";
 }

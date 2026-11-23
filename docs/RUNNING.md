@@ -32,7 +32,7 @@ npm run deploy
 
 Use `WRANGLER_LOG_PATH=/tmp/podfriends-wrangler.log` if the default Wrangler log directory is not writable.
 
-For an isolated backend, run `npx wrangler d1 execute project-podfriends --local --file=migrations/project-podfriends/0001_init.sql`, apply the auth and Notes migrations locally too, supply auth secrets in ignored `worker/.dev.vars`, and run `npm run dev`. Change the frontend API constant to the local Worker URL for that session. Google OAuth would need a registered local callback; automated API tests do not need Google credentials.
+For an isolated backend, run `npx wrangler d1 migrations apply project-podfriends --local`, apply the auth and Notes migrations locally too, supply auth secrets in ignored `worker/.dev.vars`, and run `npm run dev`. Change the frontend API constant to the local Worker URL for that session. Google OAuth would need a registered local callback; automated API tests do not need Google credentials.
 
 ## Publish frontend updates
 
@@ -49,7 +49,8 @@ When changing DOM elements required by `app.js`, bump `PAGE_VERSION` in `fronten
 ## Implemented
 
 - Google OAuth through a first-party `/api/login` navigation (no third-party state cookie dependency), then the existing bridge's single-use bearer-token exchange
-- Sequential setup: personal icebreakers, then favorite podcasts, then a waiting screen. Quartet navigation appears only after a match.
+- Fast signup: Google sign-in, favorite podcasts, then a waiting screen. Matching does not require icebreakers. Once matched, a congratulatory icebreaker form unlocks the group; the API withholds quartet details and messages until it is complete. Existing completed profiles go straight to their group.
+- Match notifications are tracked separately from introductions. Incomplete profiles receive only a generic match announcement; introductions and member alerts happen after icebreakers are completed.
 - Three general conversation starters about a day off, a favorite topic, and a small joy. Legacy answers keep their original labels until edited.
 - iTunes directory search and up to 20 ranked podcasts. If the Worker lookup fails, the frontend retries the same public directory directly with CORS, without sending credentials. This is the same free source used by `smosa-image-gallery/crawlers/itunes_podcast_crawler.py`.
 - Matching by shared shows and ranking, with SQLite triggers enforcing four members and one active group per user

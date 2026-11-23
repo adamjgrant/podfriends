@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-app-version="20261122-3">
+<html lang="en" data-app-version="20261122-4">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -10,7 +10,7 @@
     />
     <title>Podfriends | Find your listening people</title>
     <link rel="stylesheet" href="./style.css" />
-    <script type="module" src="./app.js?v=20261122-3"></script>
+    <script type="module" src="./app.js?v=20261122-4"></script>
   </head>
   <body>
     <header>
@@ -108,12 +108,19 @@
           <div id="results"></div>
           <h3>Your listening list</h3>
           <ol id="rankings"></ol>
-          <button id="save-rankings">Finish setup & find my people</button>
+          <label class="check"
+            ><input id="match-emails" type="checkbox" /> Email me when you find
+            my people</label
+          >
+          <p class="small">
+            Email delivery isn't enabled yet. Check back here for your match.
+          </p>
+          <button id="save-rankings">Find my people</button>
         </section>
         <section id="profile" class="panel" hidden>
           <p class="eyebrow">A HELLO BEFORE THE HELLO</p>
-          <h2>Let them get to know you.</h2>
-          <p>
+          <h2 id="profile-heading">Good news, we found your people!</h2>
+          <p id="profile-description">
             A few conversation starters, like meeting someone at a party. Your
             name and answers are shared with your quartet.
           </p>
@@ -152,7 +159,7 @@
               Email delivery is not enabled yet. You can still check for matches
               here.
             </p>
-            <button id="save-profile">Continue to podcasts</button>
+            <button id="save-profile">Meet my Podfriends</button>
           </form>
         </section>
       </section>
