@@ -1,4 +1,4 @@
-export const PAGE_VERSION = "20261122-4";
+export const PAGE_VERSION = "20261122-5";
 
 // GitHub Pages caches HTML and JS separately. Never run a new UI against old markup.
 // Keep the OAuth hash intact so the refreshed page can still exchange its code.

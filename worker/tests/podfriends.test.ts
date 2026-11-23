@@ -53,7 +53,8 @@ test("full MVP: profile, rankings, matching, membership, chat, leave, RSS dedupl
       readFileSync(
         "migrations/project-podfriends/0002_deferred_icebreakers.sql",
         "utf8",
-      ),
+      ) +
+      readFileSync("migrations/project-podfriends/0003_one_to_one.sql", "utf8"),
   );
   const auth = database("CREATE TABLE user(id TEXT,email TEXT)");
   const env: any = { PROJECT_PODFRIENDS_DB: db, AUTH_DB: auth.db };
@@ -123,9 +124,10 @@ test("full MVP: profile, rankings, matching, membership, chat, leave, RSS dedupl
   const counts = sql
     .prepare("SELECT count(*) AS n FROM quartet_members GROUP BY quartet_id")
     .all();
-  assert.deepEqual(counts.map((x) => x.n).sort(), [2, 4]);
+  assert.equal(counts.length, 15);
+  assert.ok(counts.every((x) => x.n === 2));
   await match(env);
-  assert.equal(sql.prepare("SELECT count(*) AS n FROM messages").get()!.n, 6);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM messages").get()!.n, 30);
   const me = (await (await call("/me")).json()) as any;
   assert.deepEqual(JSON.parse(me.profile.icebreakers_json), {
     day_off: "A hike with friends",
@@ -225,30 +227,22 @@ test("full MVP: profile, rankings, matching, membership, chat, leave, RSS dedupl
     ).messages,
     [],
   );
-  // Capacity remains safe even when the caller bypasses matching logic.
-  sql
-    .prepare(
-      "INSERT INTO quartet_members(quartet_id,user_id,joined_at) VALUES (?,?,?)",
-    )
-    .run(id, "outsider", "now");
-  assert.equal(
-    sql
-      .prepare("SELECT count(*) AS n FROM quartet_members WHERE quartet_id=?")
-      .get(id)!.n,
-    4,
+  // Two members only, but each listener can have several distinct private chats.
+  assert.throws(
+    () =>
+      sql
+        .prepare(
+          "INSERT INTO quartet_members(quartet_id,user_id,joined_at) VALUES (?,?,?)",
+        )
+        .run(id, "outsider", "now"),
+    /Chat is full/,
   );
-  const other = sql.prepare("SELECT id FROM quartets WHERE id!=?").get(id)!.id;
-  sql
-    .prepare(
-      "INSERT INTO quartet_members(quartet_id,user_id,joined_at) VALUES (?,?,?)",
-    )
-    .run(other, "a", "now");
+  assert.equal(me.chats.length, 5);
   assert.equal(
-    sql
-      .prepare("SELECT count(*) AS n FROM quartet_members WHERE user_id=?")
-      .get("a")!.n,
-    1,
+    new Set(me.chats.map((chat: any) => chat.partner.user_id)).size,
+    5,
   );
+  assert.ok(me.chats.every((chat: any) => chat.shared_podcasts.length === 1));
   assert.equal(
     (
       await call("/podcasts/rankings", "PUT", {
@@ -282,7 +276,7 @@ test("full MVP: profile, rankings, matching, membership, chat, leave, RSS dedupl
           "SELECT count(*) AS n FROM messages WHERE type='system_episode'",
         )
         .get()!.n,
-      2,
+      15,
     );
     sql.exec("UPDATE podcasts SET last_checked_at=NULL");
     await pollFeeds(env);
@@ -292,13 +286,20 @@ test("full MVP: profile, rankings, matching, membership, chat, leave, RSS dedupl
           "SELECT count(*) AS n FROM messages WHERE type='system_episode'",
         )
         .get()!.n,
-      2,
+      15,
     );
   } finally {
     globalThis.fetch = original;
   }
   assert.equal((await call(`/quartets/${id}/leave`, "POST", {})).status, 200);
   assert.equal((await call(`/quartets/${id}/messages`)).status, 404);
+  const partner = me.chats.find((chat: any) => chat.id === id).partner.user_id;
+  assert.equal(
+    (await call(`/quartets/${id}/messages`, "GET", undefined, partner)).status,
+    404,
+  );
+  await match(env);
+  assert.equal(sql.prepare("SELECT count(*) AS n FROM quartets").get()!.n, 15);
 
   // New signup: no profile form, only favorite shows. Both draft profiles must match.
   for (const uid of ["new-a", "new-b"]) {

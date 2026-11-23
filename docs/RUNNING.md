@@ -49,13 +49,14 @@ When changing DOM elements required by `app.js`, bump `PAGE_VERSION` in `fronten
 ## Implemented
 
 - Google OAuth through a first-party `/api/login` navigation (no third-party state cookie dependency), then the existing bridge's single-use bearer-token exchange
-- Fast signup: Google sign-in, favorite podcasts, then a waiting screen. Matching does not require icebreakers. Once matched, a congratulatory icebreaker form unlocks the group; the API withholds quartet details and messages until it is complete. Existing completed profiles go straight to their group.
+- Fast signup: Google sign-in, favorite podcasts, then a waiting screen. Matching does not require icebreakers. Once matched, a congratulatory icebreaker form unlocks the conversation inbox; the API withholds match identities and messages until it is complete. Existing completed profiles go straight to their conversations.
 - Match notifications are tracked separately from introductions. Incomplete profiles receive only a generic match announcement; introductions and member alerts happen after icebreakers are completed.
 - Three general conversation starters about a day off, a favorite topic, and a small joy. Legacy answers keep their original labels until edited.
 - iTunes directory search and up to 20 ranked podcasts. If the Worker lookup fails, the frontend retries the same public directory directly with CORS, without sending credentials. This is the same free source used by `smosa-image-gallery/crawlers/itunes_podcast_crawler.py`.
-- Matching by shared shows and ranking, with SQLite triggers enforcing four members and one active group per user
-- Quartet chat with incremental five-second polling and member bios
-- Leave quartet and return to matching
+- Weighted compatibility across the entire ranked list, with two people per chat and up to five active pair chats per user
+- A multi-conversation inbox with shared shows, incremental five-second polling, and personal introductions
+- End an individual conversation for both parties without affecting other chats; ended pairs are not automatically rematched
+- Responsive favorites tray, live selected states, debounced search, request-race protection, drag/arrow ranking, undo, and per-user local draft recovery
 - RSS/Atom polling, initial-history suppression, and idempotent episode cards
 - Match/member email hooks and delivery status records
 
@@ -65,8 +66,8 @@ When changing DOM elements required by `app.js`, bump `PAGE_VERSION` in `fronten
 - An actual Google login requires the user to complete consent. Live checks verify the Google redirect, state-cookie creation, invalid callback rejection, and authenticated API protection, not the complete Google callback flow.
 - GitHub reports Pages deployment status `built`. Browser smoke testing was blocked by the local Chrome launch environment, and outbound requests to the Pages domain timed out from the agent environment. Visual rendering and the full login flow still need a user-browser check.
 - Chat loads the newest 100 messages initially; older-history browsing is not implemented.
-- Matching processes 100 candidates per run; feed polling processes 10 feeds, oldest checked first. Larger adoption will require queues and capacity planning.
-- Leaving can result in matching into the same group again. There is no block/report, account deletion UI, moderation, or per-user rate limiting yet. Treat this as a small MVP, not a fully hardened public social network.
+- Matching considers a bounded pool of 200 profiles per run; there is a five-active-chat limit per person to prevent a flood of introductions. Scores are snapshots at introduction, not continuously rebalanced. Larger populations need fair candidate rotation;  feed polling processes 10 feeds, oldest checked first. Larger adoption will require queues and capacity planning.
+- There is no block/report, account deletion UI, moderation, or per-user rate limiting yet. Treat this as a small MVP, not a fully hardened public social network.
 - RSS processing supports common RSS and Atom feeds. Invalid feeds are skipped and retried later; conditional HTTP caching is not implemented yet.
 - Optional episode/missed-chat emails are not implemented.
 
@@ -74,4 +75,4 @@ When changing DOM elements required by `app.js`, bump `PAGE_VERSION` in `fronten
 
 `worker/tests/podfriends.test.ts` exercises the real Hono routes and matching SQL against in-memory SQLite. It covers onboarding, rankings, a six-person matching pool, database capacity invariants, membership restrictions, sending and polling messages, leaving, feed first-run suppression, episode deduplication, and URL/XML validation. It does not impersonate or modify any real user.
 
-`worker/tests/frontend-auth.test.ts` runs the bundled frontend in JSDOM to test saved-session restoration, one-time callback exchange, stale-page recovery without redirect loops, and expired-session handling. Search and setup tests cover the directory fallback and sequential onboarding.
+`worker/tests/frontend-auth.test.ts` runs the bundled frontend in JSDOM to test saved-session restoration, one-time callback exchange, stale-page recovery without redirect loops, and expired-session handling. Search and setup tests cover the directory fallback and deferred onboarding. `picker.test.ts` checks selected states, ranking, undo, drafts, loading/retry behavior, and request races. `matching.test.ts` verifies weighted compatibility. See `UX_AUDIT.md` for the full audit and remaining design work.

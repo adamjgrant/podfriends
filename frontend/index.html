@@ -1,16 +1,17 @@
 <!doctype html>
-<html lang="en" data-app-version="20261122-4">
+<html lang="en" data-app-version="20261122-5">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
     <meta
       name="description"
-      content="Find your people through the podcasts you love. Small groups. Real conversations."
+      content="Find your people through the podcasts you love. One-to-one matches. Real conversations."
     />
     <title>Podfriends | Find your listening people</title>
-    <link rel="stylesheet" href="./style.css" />
-    <script type="module" src="./app.js?v=20261122-4"></script>
+    <link rel="stylesheet" href="./style.css?v=20261122-5" />
+    <link rel="stylesheet" href="./interactions.css?v=20261122-5" />
+    <script type="module" src="./app.js?v=20261122-5"></script>
   </head>
   <body>
     <header>
@@ -30,10 +31,13 @@
           <p class="eyebrow">YOUR NEXT GREAT CONVERSATION STARTS HERE</p>
           <h1>You love the show.<br />Now find <em>your people.</em></h1>
           <p class="lede">
-            Meet a few fellow listeners who love the same podcasts. A little
-            group, a shared obsession, and something new to talk about.
+            Find listeners who share your podcast obsessions. One-to-one
+            conversations, a little common ground, and something new to talk
+            about.
           </p>
-          <button id="signin" disabled>Find my Podfriends <span>↗</span></button>
+          <button id="signin" disabled>
+            Find my Podfriends <span>↗</span>
+          </button>
           <p class="small">Free to join. Sign in securely with Google.</p>
         </div>
         <div class="steps">
@@ -42,8 +46,8 @@
             <p>Tell us what's always in your queue.</p>
           </article>
           <article>
-            <b>02 / Meet your quartet</b>
-            <p>Up to four listeners. Never a noisy crowd.</p>
+            <b>02 / Find your kind of listener</b>
+            <p>One-to-one matches based on your favorite shows.</p>
           </article>
           <article>
             <b>03 / Keep the conversation going</b>
@@ -55,33 +59,73 @@
         <p id="setup-progress" class="eyebrow" role="status" hidden></p>
         <button id="setup-back" class="quiet" hidden>Back</button>
         <nav id="main-nav" hidden>
-          <button data-tab="home">Your quartet</button
+          <button data-tab="home">Conversations</button
           ><button data-tab="podcasts">Your podcasts</button
           ><button data-tab="profile">Your profile</button>
         </nav>
         <section id="home" class="panel">
           <div id="waiting">
-            <p class="eyebrow">A LITTLE GROUP. A LOT IN COMMON.</p>
+            <div class="matching-orbit" aria-hidden="true">
+              <span>You</span><i>?</i>
+            </div>
+            <p class="eyebrow">YOUR NEXT CONVERSATION IS TAKING SHAPE</p>
             <h2>You're all set. We're finding your people.</h2>
             <p id="waiting-text">
-              We'll match you with a few people who love the same shows. Check
-              back soon. Your group will appear here when it's ready.
+              We're looking for listeners whose favorites overlap with yours.
+              Each match starts a private, one-to-one conversation. Check back
+              soon.
             </p>
+            <div
+              id="waiting-shows"
+              class="waiting-shows"
+              aria-label="Your saved favorites"
+            ></div>
+            <ol class="matching-steps">
+              <li class="done">
+                <b>Favorites saved</b><span>We've got your taste.</span>
+              </li>
+              <li class="current">
+                <b>Finding your people</b
+                ><span>We check for new matches every 15 minutes.</span>
+              </li>
+              <li>
+                <b>Make your introductions</b
+                ><span>A few icebreakers, then meet your matches.</span>
+              </li>
+            </ol>
             <button id="edit-podcasts" class="quiet">Edit my podcasts</button>
             <button id="edit-profile" class="quiet">Edit my profile</button>
           </div>
+          <section id="conversations" hidden aria-labelledby="inbox-heading">
+            <p class="eyebrow">GOOD TASTE. GOOD COMPANY.</p>
+            <h2 id="inbox-heading">Your conversations</h2>
+            <p class="small">
+              Each connection is just the two of you. Your shared favorites give
+              you a place to start.
+            </p>
+            <div id="chat-list" class="chat-list"></div>
+          </section>
           <div id="quartet" hidden>
             <div class="heading">
               <div>
-                <p class="eyebrow">YOUR QUARTET</p>
+                <p class="eyebrow">JUST THE TWO OF YOU</p>
                 <h2 id="quartet-name"></h2>
               </div>
-              <button id="leave" class="quiet">Leave quartet</button>
+              <button id="leave" class="quiet">End conversation</button>
             </div>
             <div id="members"></div>
+            <p id="chat-empty" class="chat-empty">
+              Your conversation starts here. Say hello or share what you loved
+              about the latest episode.
+            </p>
             <div id="messages" aria-live="polite" role="log"></div>
+            <button id="new-messages" class="quiet" hidden>
+              New messages ↓
+            </button>
             <form id="message-form">
-              <label class="sr-only" for="message">Message your quartet</label>
+              <label class="sr-only" for="message"
+                >Message your Podfriend</label
+              >
               <div class="compose">
                 <input
                   id="message"
@@ -94,42 +138,112 @@
             </form>
           </div>
         </section>
-        <section id="podcasts" class="panel" hidden>
-          <p class="eyebrow">WHAT'S IN YOUR QUEUE?</p>
-          <h2>Your favorites, in order.</h2>
-          <p>
-            Put your most-loved shows first. We'll use these to find your
-            quartet.
-          </p>
-          <form id="search-form">
-            <label for="search">Search podcasts</label>
-            <div class="compose">
-              <input
-                id="search"
-                placeholder="A show, a host, an obsession..."
-                minlength="2"
-                required
-              /><button>Search</button>
+        <section id="podcasts" class="panel picker-panel" hidden>
+          <div class="picker-intro">
+            <p class="eyebrow">THE SHOWS THAT FEEL LIKE YOU</p>
+            <h2>Great friendships start<br />with “you listen to that too?”</h2>
+            <p>
+              Pick the shows you keep coming back to. One is enough to get
+              started.
+            </p>
+          </div>
+          <div class="picker-layout">
+            <div class="discovery">
+              <form id="search-form" role="search">
+                <label for="search" class="sr-only"
+                  >Search podcasts by show or host</label
+                >
+                <div class="search-field">
+                  <span aria-hidden="true">⌕</span
+                  ><input
+                    id="search"
+                    type="search"
+                    placeholder="Search a show or host"
+                    minlength="2"
+                    required
+                    autocomplete="off"
+                    aria-describedby="search-feedback"
+                  /><button
+                    id="clear-search"
+                    type="button"
+                    class="quiet"
+                    aria-label="Clear search"
+                    hidden
+                  >
+                    ×</button
+                  ><button>Search</button>
+                </div>
+              </form>
+              <div class="search-suggestions">
+                <span>Try a favorite</span
+                ><button type="button" data-search="MrBallen">MrBallen</button
+                ><button type="button" data-search="Radiolab">Radiolab</button
+                ><button type="button" data-search="SmartLess">
+                  SmartLess
+                </button>
+              </div>
+              <p id="search-feedback" class="search-feedback" role="status">
+                Search your favorites, or try a suggestion above.
+              </p>
+              <ul
+                id="results"
+                class="result-grid"
+                aria-label="Podcast search results"
+                aria-busy="false"
+              ></ul>
             </div>
-          </form>
-          <div id="results"></div>
-          <h3>Your listening list</h3>
-          <ol id="rankings"></ol>
-          <label class="check"
-            ><input id="match-emails" type="checkbox" /> Email me when you find
-            my people</label
-          >
-          <p class="small">
-            Email delivery isn't enabled yet. Check back here for your match.
-          </p>
-          <button id="save-rankings">Find my people</button>
+            <aside class="selection-tray" aria-labelledby="selection-heading">
+              <div class="tray-heading">
+                <div>
+                  <p class="eyebrow">YOUR SIDE OF THE CONVERSATION</p>
+                  <h3 id="selection-heading">
+                    Your favorites <span id="selection-count">0</span>
+                  </h3>
+                </div>
+              </div>
+              <p id="selection-hint" class="small">
+                Start with one show you love. You can always add more.
+              </p>
+              <div id="selection-empty" class="selection-empty">
+                <span aria-hidden="true">♫</span
+                ><b>A little list. A lot in common.</b>
+                <p>Tap + Add on a show.<br />Your favorites will land here.</p>
+              </div>
+              <ol id="rankings" aria-label="Favorites in priority order"></ol>
+              <div class="selection-footer">
+                <p id="selection-state" class="small">
+                  Choose at least one show to get started
+                </p>
+                <button id="save-rankings" disabled>
+                  Find my people <span aria-hidden="true">↗</span>
+                </button>
+                <details class="email-settings">
+                  <summary>Match notification preferences</summary>
+                  <label class="check"
+                    ><input id="match-emails" type="checkbox" /> Email me when
+                    you find my people</label
+                  >
+                  <p class="small">
+                    Email isn't enabled yet. Check back here for your match.
+                  </p>
+                </details>
+              </div>
+            </aside>
+          </div>
+          <button id="review-selection" type="button" hidden>
+            Review favorites
+          </button>
+          <p id="picker-announcement" class="sr-only" role="status"></p>
         </section>
         <section id="profile" class="panel" hidden>
           <p class="eyebrow">A HELLO BEFORE THE HELLO</p>
           <h2 id="profile-heading">Good news, we found your people!</h2>
           <p id="profile-description">
             A few conversation starters, like meeting someone at a party. Your
-            name and answers are shared with your quartet.
+            name and answers are shared with your matches.
+          </p>
+          <p id="icebreaker-progress" class="small" role="status">
+            Three little things to start a conversation.
           </p>
           <form id="profile-form">
             <label for="display-name">What should we call you?</label
@@ -170,7 +284,31 @@
           </form>
         </section>
       </section>
-      <dialog id="bio-dialog">
+      <div id="toast" class="toast" hidden>
+        <span id="toast-message" role="status"></span
+        ><button id="toast-undo" type="button" hidden>Undo</button
+        ><button
+          id="toast-close"
+          type="button"
+          aria-label="Dismiss notification"
+        >
+          ×
+        </button>
+      </div>
+      <dialog id="leave-dialog" aria-labelledby="leave-heading">
+        <p class="eyebrow">A DIFFERENT CONVERSATION?</p>
+        <h2 id="leave-heading">End this conversation?</h2>
+        <p>
+          This chat will close for both of you. Your other conversations stay
+          open, and we won't match you with this person again.
+        </p>
+        <div class="dialog-actions">
+          <button id="cancel-leave" class="quiet" autofocus>
+            Keep chatting</button
+          ><button id="confirm-leave" class="danger">End conversation</button>
+        </div>
+      </dialog>
+      <dialog id="bio-dialog" aria-labelledby="bio-name">
         <button id="close-dialog" class="quiet">Close</button>
         <h2 id="bio-name"></h2>
         <div id="bio-answers"></div>

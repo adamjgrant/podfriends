@@ -33,7 +33,7 @@ export async function pollFeeds(env: Env) {
   const feeds = (
     await db
       .prepare(
-        "SELECT DISTINCT p.* FROM podcasts p JOIN quartets q ON q.podcast_id=p.id WHERE q.status='active' AND (p.last_checked_at IS NULL OR p.last_checked_at < ?) ORDER BY p.last_checked_at LIMIT 10",
+        "SELECT DISTINCT p.* FROM podcasts p JOIN quartets q ON (q.podcast_id=p.id OR EXISTS (SELECT 1 FROM json_each(q.shared_podcasts_json) WHERE json_extract(value,'$.id')=p.id)) WHERE q.status='active' AND (p.last_checked_at IS NULL OR p.last_checked_at < ?) ORDER BY p.last_checked_at LIMIT 10",
       )
       .bind(new Date(Date.now() - 14 * 60000).toISOString())
       .all<any>()
@@ -100,13 +100,14 @@ export async function pollFeeds(env: Env) {
           statements.push(
             db
               .prepare(
-                "INSERT OR IGNORE INTO messages (id,quartet_id,type,body,metadata_json,created_at) SELECT ? || ':' || id,id,'system_episode',?,?,? FROM quartets WHERE podcast_id=? AND status='active'",
+                "INSERT OR IGNORE INTO messages (id,quartet_id,type,body,metadata_json,created_at) SELECT ? || ':' || id,id,'system_episode',?,?,? FROM quartets WHERE (podcast_id=? OR EXISTS (SELECT 1 FROM json_each(shared_podcasts_json) WHERE json_extract(value,'$.id')=?)) AND status='active'",
               )
               .bind(
                 id,
                 `New episode: ${e.title}`,
                 JSON.stringify(e),
                 timestamp,
+                feed.id,
                 feed.id,
               ),
           );

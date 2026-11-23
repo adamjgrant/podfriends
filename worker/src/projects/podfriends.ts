@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { bodyLimit } from "hono/body-limit";
 import type { Env } from "../auth";
 import type { AppVariables } from "../index";
+import { findPairs } from "./matching";
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 const now = () => new Date().toISOString();
@@ -27,10 +28,10 @@ app.onError((e, c) => {
 const active = (db: D1Database, user: string) =>
   db
     .prepare(
-      "SELECT q.* FROM quartets q JOIN quartet_members m ON m.quartet_id=q.id WHERE m.user_id=? AND q.status='active'",
+      "SELECT q.* FROM quartets q JOIN quartet_members m ON m.quartet_id=q.id WHERE m.user_id=? AND q.status='active' ORDER BY q.match_score DESC,q.created_at DESC",
     )
     .bind(user)
-    .first();
+    .all();
 app.get("/me", async (c) => {
   const db = c.get("projectDb"),
     user = c.get("user");
@@ -38,12 +39,28 @@ app.get("/me", async (c) => {
     .prepare("SELECT * FROM profiles WHERE user_id=?")
     .bind(user.id)
     .first();
-  const quartet = await active(db, user.id);
-  const needsIcebreakers = !!quartet && !profile?.onboarding_completed;
+  const chats = (await active(db, user.id)).results;
+  const needsIcebreakers = !!chats.length && !profile?.onboarding_completed;
+  const visibleChats = needsIcebreakers
+    ? []
+    : await Promise.all(
+        chats.map(async (chat) => ({
+          ...chat,
+          partner: await db
+            .prepare(
+              "SELECT p.user_id,p.display_name,p.onboarding_completed FROM quartet_members m JOIN profiles p ON p.user_id=m.user_id WHERE m.quartet_id=? AND m.user_id!=? LIMIT 1",
+            )
+            .bind(chat.id, user.id)
+            .first(),
+          shared_podcasts: JSON.parse(
+            String(chat.shared_podcasts_json || "[]"),
+          ),
+        })),
+      );
   return c.json({
     user,
     profile,
-    match_found: !!quartet,
+    match_found: chats.length > 0,
     needs_icebreakers: needsIcebreakers,
     podcasts: (
       await db
@@ -53,7 +70,8 @@ app.get("/me", async (c) => {
         .bind(user.id)
         .all()
     ).results,
-    quartet: needsIcebreakers ? null : quartet,
+    chats: visibleChats,
+    quartet: visibleChats[0] || null,
   });
 });
 app.put("/profile", async (c) => {
@@ -202,7 +220,7 @@ app.use("/quartets/:id/*", async (c, next) => {
     )
     .bind(c.req.param("id"), c.get("user").id)
     .first();
-  if (!member) return c.json({ error: "Quartet not found" }, 404);
+  if (!member) return c.json({ error: "Conversation not found" }, 404);
   // Leaving is always allowed, but matches and messages stay private until icebreakers are complete.
   if (!(c.req.method === "POST" && c.req.path.endsWith("/leave"))) {
     const profile = await c
@@ -213,7 +231,7 @@ app.use("/quartets/:id/*", async (c, next) => {
     if (!profile?.onboarding_completed)
       return c.json(
         {
-          error: "Complete your icebreakers to meet your quartet.",
+          error: "Complete your icebreakers to meet your matches.",
           code: "ICEBREAKERS_REQUIRED",
         },
         403,
@@ -301,7 +319,7 @@ app.post("/quartets/:id/leave", async (c) => {
       .bind(id, c.get("user").id),
     db
       .prepare(
-        "UPDATE quartets SET status='archived' WHERE id=? AND NOT EXISTS (SELECT 1 FROM quartet_members WHERE quartet_id=?)",
+        "UPDATE quartets SET status='archived' WHERE id=? AND (kind='pair' OR NOT EXISTS (SELECT 1 FROM quartet_members WHERE quartet_id=?))",
       )
       .bind(id, id),
   ]);
@@ -357,58 +375,7 @@ export async function notify(
 }
 export async function match(env: Env) {
   const db = env.PROJECT_PODFRIENDS_DB;
-  const eligible = (
-    await db
-      .prepare(
-        "SELECT p.user_id FROM profiles p WHERE EXISTS (SELECT 1 FROM user_podcasts WHERE user_id=p.user_id) AND NOT EXISTS (SELECT 1 FROM quartet_members m JOIN quartets q ON q.id=m.quartet_id WHERE m.user_id=p.user_id AND q.status='active') ORDER BY p.created_at LIMIT 100",
-      )
-      .all<{ user_id: string }>()
-  ).results;
-  for (const { user_id: uid } of eligible) {
-    if (await active(db, uid)) continue;
-    let q = await db
-      .prepare(
-        "SELECT q.id FROM quartets q JOIN user_podcasts u ON u.podcast_id=q.podcast_id WHERE u.user_id=? AND q.status='active' AND (SELECT COUNT(*) FROM quartet_members WHERE quartet_id=q.id)<4 ORDER BY u.rank LIMIT 1",
-      )
-      .bind(uid)
-      .first<{ id: string }>();
-    if (!q) {
-      const peer = await db
-        .prepare(
-          "SELECT v.user_id,u.podcast_id,p.title FROM user_podcasts u JOIN user_podcasts v ON v.podcast_id=u.podcast_id AND v.user_id!=u.user_id JOIN profiles f ON f.user_id=v.user_id JOIN podcasts p ON p.id=u.podcast_id WHERE u.user_id=? AND NOT EXISTS (SELECT 1 FROM quartet_members m JOIN quartets q ON q.id=m.quartet_id WHERE m.user_id=v.user_id AND q.status='active') ORDER BY (u.rank+v.rank),v.user_id LIMIT 1",
-        )
-        .bind(uid)
-        .first<{ user_id: string; podcast_id: string; title: string }>();
-      if (!peer) continue;
-      q = { id: crypto.randomUUID() };
-      await db.batch([
-        db
-          .prepare(
-            "INSERT INTO quartets (id,podcast_id,name,created_at) VALUES (?,?,?,?)",
-          )
-          .bind(q.id, peer.podcast_id, peer.title + " quartet", now()),
-        ...[uid, peer.user_id].map((id) =>
-          db
-            .prepare(
-              "INSERT OR IGNORE INTO quartet_members (quartet_id,user_id,joined_at) VALUES (?,?,?)",
-            )
-            .bind(q!.id, id, now()),
-        ),
-      ]);
-      await db
-        .prepare(
-          "UPDATE quartets SET status='archived' WHERE id=? AND NOT EXISTS (SELECT 1 FROM quartet_members WHERE quartet_id=?)",
-        )
-        .bind(q.id, q.id)
-        .run();
-    } else
-      await db
-        .prepare(
-          "INSERT OR IGNORE INTO quartet_members (quartet_id,user_id,joined_at) VALUES (?,?,?)",
-        )
-        .bind(q.id, uid, now())
-        .run();
-  }
+  await findPairs(db);
   // Claim each match announcement once, independently of profile completion.
   const announcements = (
     await db
@@ -423,7 +390,7 @@ export async function match(env: Env) {
       member.user_id,
       "match_found",
       "Good news, we found your Podfriends!",
-      "You have been matched with fellow listeners. Open Podfriends to finish your icebreakers and meet your group.",
+      "Someone shares your podcast taste. Open Podfriends to meet them in a private conversation. If you haven't yet, finish your icebreakers to see your matches.",
     );
   }
   const pending = (
