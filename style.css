@@ -12,6 +12,7 @@
 }
 body {
   margin: 0;
+  overflow-x: clip;
 }
 header,
 main,
@@ -96,7 +97,50 @@ h3 {
   color: var(--green);
 }
 #welcome {
+  position: relative;
   padding: 48px 0 20px;
+}
+.hero-content,
+#welcome .steps {
+  position: relative;
+  z-index: 1;
+}
+.hero-backdrop {
+  position: absolute;
+  top: -12px;
+  right: -90px;
+  width: min(640px, 66vw);
+  pointer-events: none;
+  z-index: 0;
+  -webkit-mask-image: radial-gradient(
+    ellipse 78% 74% at 56% 46%,
+    rgba(0, 0, 0, 0.95) 28%,
+    rgba(0, 0, 0, 0.45) 62%,
+    transparent 92%
+  );
+  mask-image: radial-gradient(
+    ellipse 78% 74% at 56% 46%,
+    rgba(0, 0, 0, 0.95) 28%,
+    rgba(0, 0, 0, 0.45) 62%,
+    transparent 92%
+  );
+}
+.hero-tilt {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(39, 53, 46, 0.12);
+  box-shadow:
+    0 34px 70px -18px rgba(28, 44, 35, 0.3),
+    0 14px 30px -12px rgba(28, 44, 35, 0.18);
+  transform: perspective(1100px) rotateY(-12deg) rotateX(6deg) rotateZ(-15deg);
+  transform-origin: center center;
+  opacity: 0.32;
+}
+.hero-tilt img {
+  display: block;
+  width: 100%;
+  height: auto;
+  filter: saturate(0.92) contrast(1.02);
 }
 .lede {
   max-width: 570px;
@@ -308,6 +352,14 @@ dialog::backdrop {
   display: none !important;
 }
 @media (max-width: 600px) {
+  .hero-backdrop {
+    top: -10px;
+    right: -60px;
+    width: 110vw;
+  }
+  .hero-tilt {
+    opacity: 0.2;
+  }
   header,
   main,
   footer {
