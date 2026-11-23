@@ -1,3 +1,4 @@
+export const isTestAccount = (id: string) => id.startsWith("pf-e2e-");
 type Pick = { id: string; title: string; rank: number };
 export function compatibility(a: Pick[], b: Pick[]) {
   const left = new Map(a.map((p) => [p.id, 1 / p.rank]));
@@ -61,6 +62,8 @@ export async function findPairs(db: D1Database) {
         b = ids[j],
         key = JSON.stringify([a, b]);
       if (known.has(key)) continue;
+      // Automated end-to-end test accounts must never be introduced to real people.
+      if (isTestAccount(a) !== isTestAccount(b)) continue;
       const match = compatibility(users.get(a)!, users.get(b)!);
       if (match.shared.length) candidates.push({ a, b, key, ...match });
     }

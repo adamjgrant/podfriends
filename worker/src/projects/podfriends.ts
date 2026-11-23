@@ -107,6 +107,28 @@ app.put("/profile", async (c) => {
   c.executionCtx.waitUntil(match(c.env));
   return c.json({ saved: true });
 });
+// Browser diagnostics so real-user failures (e.g. Safari-only) are visible without a console.
+app.post("/client-log", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const kind = text(b.kind, 40) || "error";
+  if (!/^[a-z_]+$/.test(kind)) return c.json({ error: "Invalid kind" }, 400);
+  const db = c.get("projectDb");
+  const uid = c.get("user").id;
+  // Cap per-user volume so a crash loop cannot flood the database.
+  const recent = await db
+    .prepare("SELECT COUNT(*) AS n FROM client_events WHERE user_id=? AND created_at > ?")
+    .bind(uid, new Date(Date.now() - 3600000).toISOString())
+    .first<{ n: number }>();
+  if ((recent?.n || 0) >= 50) return c.json({ logged: false }, 429);
+  await db
+    .prepare(
+      "INSERT INTO client_events (id,user_id,kind,message,detail,user_agent,app_version,created_at) VALUES (?,?,?,?,?,?,?,?)",
+    )
+    .bind(crypto.randomUUID(), uid, kind, text(b.message, 500), text(b.detail, 2000),
+      text(c.req.header("User-Agent"), 300), text(b.app_version, 40), now())
+    .run();
+  return c.json({ logged: true });
+});
 app.get("/podcasts/search", async (c) => {
   const q = text(c.req.query("q"), 120);
   if (q.length < 2) return c.json({ podcasts: [] });
@@ -170,7 +192,8 @@ app.put("/podcasts/rankings", async (c) => {
         text(c.get("user").name, 80) || "Podfriend",
         now(),
         now(),
-        email_notifications_enabled === true ? 1 : 0,
+        // Match emails default to on unless the user explicitly opts out.
+        email_notifications_enabled === false ? 0 : 1,
         typeof email_notifications_enabled === "boolean"
           ? Number(email_notifications_enabled)
           : null,

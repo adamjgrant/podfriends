@@ -6,7 +6,8 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "e2e": "node e2e/live.e2e.cjs"
   },
   "dependencies": {
     "better-auth": "^1.5.0",
@@ -18,6 +19,7 @@
     "@cloudflare/workers-types": "^5.20261119.1",
     "esbuild": "^0.28.2",
     "jsdom": "^31.0.1",
+    "playwright": "^1.65.1",
     "tsx": "^4.23.15",
     "typescript": "^5.6.0",
     "wrangler": "^4.0.0"

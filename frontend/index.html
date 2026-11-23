@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-app-version="20261122-5">
+<html lang="en" data-app-version="20261122-6">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,9 +9,9 @@
       content="Find your people through the podcasts you love. One-to-one matches. Real conversations."
     />
     <title>Podfriends | Find your listening people</title>
-    <link rel="stylesheet" href="./style.css?v=20261122-5" />
-    <link rel="stylesheet" href="./interactions.css?v=20261122-5" />
-    <script type="module" src="./app.js?v=20261122-5"></script>
+    <link rel="stylesheet" href="./style.css?v=20261122-6" />
+    <link rel="stylesheet" href="./interactions.css?v=20261122-6" />
+    <script type="module" src="./app.js?v=20261122-6"></script>
   </head>
   <body>
     <header>
@@ -214,19 +214,16 @@
                 <p id="selection-state" class="small">
                   Choose at least one show to get started
                 </p>
+                <label class="email-toggle" for="match-emails">
+                  <span class="email-copy"><b>Email me when I get a match</b>
+                  <span id="match-email-address">We'll let you know the moment someone shares your taste.</span></span>
+                  <input id="match-emails" type="checkbox" role="switch" checked />
+                  <span class="switch" aria-hidden="true"></span>
+                </label>
+                <p class="small email-note">Match emails start once delivery is switched on. Until then, your match appears here.</p>
                 <button id="save-rankings" disabled>
                   Find my people <span aria-hidden="true">↗</span>
                 </button>
-                <details class="email-settings">
-                  <summary>Match notification preferences</summary>
-                  <label class="check"
-                    ><input id="match-emails" type="checkbox" /> Email me when
-                    you find my people</label
-                  >
-                  <p class="small">
-                    Email isn't enabled yet. Check back here for your match.
-                  </p>
-                </details>
               </div>
             </aside>
           </div>

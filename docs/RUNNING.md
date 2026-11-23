@@ -46,6 +46,25 @@ The repository must have GitHub Pages configured to publish the root of `gh-page
 
 When changing DOM elements required by `app.js`, bump `PAGE_VERSION` in `frontend/bootstrap.js` and the matching `data-app-version` and script `?v=` in `frontend/index.html`. The startup guard detects cached old HTML, reloads it once with a cache-busting query while preserving the OAuth hash, and refuses to initialize mismatched markup. Do not remove this guard: mismatched cached HTML previously crashed before the auth-code exchange and created a sign-in loop.
 
+## Before every deploy: real-browser end-to-end test
+
+```sh
+python3 -m http.server 8080 --directory frontend &   # test the frontend before publishing
+cd worker && SITE=http://localhost:8080/ npm run e2e
+```
+
+After publishing, run `npm run e2e` again against the live site. `worker/e2e/live.e2e.cjs` drives real Chromium through the full journey with two temporary accounts: search, add shows, check that match emails are on by default and visible, save (waiting for the real `PUT` to succeed), match, icebreakers, and a message in each direction. It checks desktop and phone layouts for horizontal overflow and fails on uncaught page errors. Test accounts are seeded sessions with the `pf-e2e-` prefix, so no Google login is needed. The matcher never pairs them with real people, and all test rows are deleted afterwards (`KEEP=1` keeps them for debugging). Failure screenshots go to `/tmp/podfriends-e2e-failure-*.png`.
+
+Limits: this covers Chromium only. Safari/WebKit and Firefox could not launch in the agent sandbox. To cover Safari, the frontend reports failed actions and uncaught errors to `client_events` in D1 (see below).
+
+## Real-user diagnostics
+
+The frontend posts failed actions, uncaught errors, and a breadcrumb for the save click to `POST /p/podfriends/client-log` (50 events per user per hour). Inspect them with:
+
+```sh
+npx wrangler d1 execute project-podfriends --remote --command "SELECT kind,message,detail,user_agent,app_version,created_at FROM client_events ORDER BY created_at DESC LIMIT 20"
+```
+
 ## Implemented
 
 - Google OAuth through a first-party `/api/login` navigation (no third-party state cookie dependency), then the existing bridge's single-use bearer-token exchange
@@ -62,7 +81,7 @@ When changing DOM elements required by `app.js`, bump `PAGE_VERSION` in `fronten
 
 ## Known MVP limitations
 
-- Resend is not configured. Email events are recorded as `logged`, not delivered. The frontend discloses this. To enable delivery, configure `RESEND_API_KEY` and a verified `EMAIL_FROM` with `wrangler secret put`, then update the frontend email notice.
+- Match emails are on by default, shown as a visible switch beside the save button. Resend is not configured. Email events are recorded as `logged`, not delivered. The frontend discloses this. To enable delivery, configure `RESEND_API_KEY` and a verified `EMAIL_FROM` with `wrangler secret put`, then update the frontend email notice.
 - An actual Google login requires the user to complete consent. Live checks verify the Google redirect, state-cookie creation, invalid callback rejection, and authenticated API protection, not the complete Google callback flow.
 - GitHub reports Pages deployment status `built`. Browser smoke testing was blocked by the local Chrome launch environment, and outbound requests to the Pages domain timed out from the agent environment. Visual rendering and the full login flow still need a user-browser check.
 - Chat loads the newest 100 messages initially; older-history browsing is not implemented.

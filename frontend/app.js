@@ -1,7 +1,7 @@
-import { searchPodcasts } from "./podcast-search.js";
-import { setupComplete, initialScreen } from "./setup.js?v=20261122-4";
-import { ensureCurrentPage } from "./bootstrap.js?v=20261122-5";
-import { createPodcastPicker } from "./podcast-picker.js?v=20261122-5";
+import { searchPodcasts } from "./podcast-search.js?v=20261122-6";
+import { setupComplete, initialScreen } from "./setup.js?v=20261122-6";
+import { ensureCurrentPage } from "./bootstrap.js?v=20261122-6";
+import { createPodcastPicker } from "./podcast-picker.js?v=20261122-6";
 
 function startApp() {
   const API = "https://side-project-bridge.smosa.workers.dev";
@@ -60,7 +60,22 @@ function startApp() {
   }
   const api = (path, method, body) =>
     request("/p/podfriends" + path, method, body);
-  function action(element, fn, event = "click") {
+  // Report failures to the backend so browser-specific bugs surface without a console.
+  const APP_VERSION = document.documentElement.dataset.appVersion || "";
+  function report(kind, message, detail = "") {
+    if (!token) return;
+    try {
+      fetch(API + "/p/podfriends/client-log", {
+        method: "POST",
+        keepalive: true,
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, message: String(message).slice(0, 500), detail: String(detail).slice(0, 2000), app_version: APP_VERSION }),
+      }).catch(() => {});
+    } catch { /* Diagnostics must never break the app. */ }
+  }
+  window.addEventListener("error", (e) => report("uncaught", e.message, `${e.filename}:${e.lineno}:${e.colno} ${e.error?.stack || ""}`));
+  window.addEventListener("unhandledrejection", (e) => report("unhandled_rejection", e.reason?.message || e.reason, e.reason?.stack || ""));
+  function action(element, fn, event = "click", name = element.id || event) {
     element.addEventListener(event, async (e) => {
       e.preventDefault();
       const button =
@@ -71,7 +86,10 @@ function startApp() {
       try {
         await fn(e);
       } catch (err) {
+        // Show failures where the user is looking, not in a banner scrolled off-screen.
         status(err.message, true);
+        toast(err.message || "Something went wrong. Please try again.", null, "", true);
+        if (err.status !== 401) report("action_failed", `${name}: ${err.message}`, err.stack || "");
       } finally {
         if (button) button.disabled = false;
       }
@@ -159,8 +177,9 @@ function startApp() {
     return b;
   }
   let toastTimer;
-  function toast(message, undo, actionLabel = "Undo") {
+  function toast(message, undo, actionLabel = "Undo", isError = false) {
     clearTimeout(toastTimer);
+    $("toast").classList.toggle("error", isError);
     $("toast-message").textContent = message;
     $("toast").hidden = false;
     $("toast-undo").hidden = !undo;
@@ -170,7 +189,8 @@ function startApp() {
       $("toast").hidden = true;
     };
     // Undo stays available until dismissed or replaced by a later action.
-    if (!undo)
+    // Errors stay until dismissed so they can't be missed.
+    if (!undo && !isError)
       toastTimer = setTimeout(() => {
         $("toast").hidden = true;
       }, 4500);
@@ -188,6 +208,7 @@ function startApp() {
     onChange: () => status(),
   });
   action($("save-rankings"), async () => {
+    report("breadcrumb", "save_rankings_clicked", `${picker.getPodcasts().length} shows`);
     const podcasts = picker.getPodcasts();
     if (!podcasts.length) return;
     picker.setBusy(true);
@@ -238,8 +259,9 @@ function startApp() {
       $("display-name").value = me.profile?.display_name || me.user.name || "";
       const answers = JSON.parse(me.profile?.icebreakers_json || "{}");
       for (const [key] of ICEBREAKERS) $(key).value = answers[key] || "";
-      $("emails").checked = !!me.profile?.email_notifications_enabled;
-      $("match-emails").checked = !!me.profile?.email_notifications_enabled;
+      $("emails").checked = me.profile ? !!me.profile.email_notifications_enabled : true;
+      $("match-emails").checked = me.profile ? !!me.profile.email_notifications_enabled : true;
+      if (me.user.email) $("match-email-address").textContent = `We'll send it to ${me.user.email}.`;
       tab(initialScreen(me));
     }
     // A newly discovered match interrupts waiting, not an in-progress icebreaker form.
