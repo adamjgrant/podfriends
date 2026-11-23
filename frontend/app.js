@@ -1,5 +1,16 @@
+import { searchPodcasts } from "./podcast-search.js";
+import { setupComplete, initialScreen } from "./setup.js";
+
 const API = "https://side-project-bridge.smosa.workers.dev";
 const KEY = "podfriends_token";
+const ICEBREAKERS = [
+  ["day_off", "What's your idea of a great day off?"],
+  [
+    "talk_for_hours",
+    "What's something you could happily talk about for hours?",
+  ],
+  ["small_joy", "What's a small thing that always makes your day?"],
+];
 const $ = (id) => document.getElementById(id);
 let token = localStorage.getItem(KEY),
   me,
@@ -21,6 +32,7 @@ function setToken(value) {
 async function request(path, method = "GET", body) {
   const r = await fetch(API + path, {
     method,
+    signal: AbortSignal.timeout(15000),
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body ? { "Content-Type": "application/json" } : {}),
@@ -33,9 +45,11 @@ async function request(path, method = "GET", body) {
       setToken(null);
       signedOut();
     }
-    throw new Error(
+    const error = new Error(
       data.error || data.message || `Request failed (${r.status})`,
     );
+    error.status = r.status;
+    throw error;
   }
   return data;
 }
@@ -62,6 +76,29 @@ function tab(name) {
   document
     .querySelectorAll("[data-tab]")
     .forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  renderNavigation();
+}
+function renderNavigation() {
+  const complete = setupComplete(me);
+  $("main-nav").hidden = !me?.quartet;
+  $("setup-progress").hidden = complete;
+  $("setup-progress").textContent =
+    currentTab === "profile"
+      ? "STEP 1 OF 2 · A LITTLE ABOUT YOU"
+      : "STEP 2 OF 2 · YOUR FAVORITE SHOWS";
+  $("setup-back").hidden =
+    !!me?.quartet ||
+    currentTab === "home" ||
+    (!complete && currentTab === "profile");
+  $("setup-back").textContent = complete
+    ? "Back to matching"
+    : "Back to profile";
+  $("save-profile").textContent = complete
+    ? "Save my profile"
+    : "Continue to podcasts";
+  $("save-rankings").textContent = complete
+    ? "Save my podcasts"
+    : "Finish setup & find my people";
 }
 document
   .querySelectorAll("[data-tab]")
@@ -77,7 +114,11 @@ function signedOut() {
 }
 action($("signin"), async () => {
   status("Taking you to Google...");
-  location.assign(API + "/api/login?callbackURL=" + encodeURIComponent(location.origin + location.pathname));
+  location.assign(
+    API +
+      "/api/login?callbackURL=" +
+      encodeURIComponent(location.origin + location.pathname),
+  );
 });
 action($("signout"), async () => {
   try {
@@ -157,10 +198,10 @@ action(
   $("search-form"),
   async () => {
     status("Searching podcasts...");
-    const d = await api(
-      "/podcasts/search?q=" + encodeURIComponent($("search").value),
-    );
     $("results").replaceChildren();
+    const d = await searchPodcasts($("search").value, (term) =>
+      api("/podcasts/search?q=" + encodeURIComponent(term)),
+    );
     for (const p of d.podcasts) {
       const row = podcastRow(p);
       row.append(
@@ -182,6 +223,8 @@ action(
   "submit",
 );
 action($("save-rankings"), async () => {
+  if (!ranked.length)
+    throw new Error("Add at least one podcast so we can find your people.");
   await api("/podcasts/rankings", "PUT", { podcasts: ranked });
   await refresh();
   tab("home");
@@ -190,24 +233,23 @@ action($("save-rankings"), async () => {
 action(
   $("profile-form"),
   async () => {
+    const wasComplete = setupComplete(me);
     await api("/profile", "PUT", {
       display_name: $("display-name").value,
       icebreakers: Object.fromEntries(
-        ["favorite_episode", "listening_habit", "bio"].map((k) => [
-          k,
-          $(k).value,
-        ]),
+        ICEBREAKERS.map(([key]) => [key, $(key).value]),
       ),
       email_notifications_enabled: $("emails").checked,
     });
     await refresh();
-    tab(ranked.length ? "home" : "podcasts");
+    tab(wasComplete ? "home" : "podcasts");
     status("Profile saved.");
   },
   "submit",
 );
-$("setup").onclick = () =>
-  tab(me?.profile?.onboarding_completed ? "podcasts" : "profile");
+$("edit-profile").onclick = () => tab("profile");
+$("edit-podcasts").onclick = () => tab("podcasts");
+$("setup-back").onclick = () => tab(setupComplete(me) ? "home" : "profile");
 async function refresh(initial = false) {
   me = await api("/me");
   $("welcome").hidden = true;
@@ -218,18 +260,13 @@ async function refresh(initial = false) {
     renderRankings();
     $("display-name").value = me.profile?.display_name || me.user.name || "";
     const answers = JSON.parse(me.profile?.icebreakers_json || "{}");
-    for (const k of ["favorite_episode", "listening_habit", "bio"])
-      $(k).value = answers[k] || "";
+    for (const [key] of ICEBREAKERS) $(key).value = answers[key] || "";
     $("emails").checked = !!me.profile?.email_notifications_enabled;
-    tab(me.profile ? "home" : "profile");
+    tab(initialScreen(me));
   }
   $("waiting").hidden = !!me.quartet;
   $("quartet").hidden = !me.quartet;
-  if (me.profile?.onboarding_completed && me.podcasts.length) {
-    $("waiting-text").textContent =
-      "Your profile is ready. We’re looking for listeners who love your favorites. This page checks for matches automatically. You can come back any time.";
-    $("setup").textContent = "Edit my favorites";
-  }
+  renderNavigation();
   if (me.quartet) {
     if (quartetId !== me.quartet.id) {
       quartetId = me.quartet.id;
@@ -245,12 +282,16 @@ async function refresh(initial = false) {
           $("bio-name").textContent = m.display_name;
           $("bio-answers").replaceChildren();
           const a = JSON.parse(m.icebreakers_json);
+          // Keep existing answers under their original labels until members update them.
           for (const [key, label] of [
+            ...ICEBREAKERS,
             ["favorite_episode", "Favorite episode"],
             ["listening_habit", "Listening habit"],
             ["bio", "About me"],
-          ])
-            $("bio-answers").append(node("h3", label), node("p", a[key]));
+          ]) {
+            if (a[key])
+              $("bio-answers").append(node("h3", label), node("p", a[key]));
+          }
           $("bio-dialog").showModal();
         }),
       );

@@ -88,9 +88,9 @@ test("full MVP: profile, rankings, matching, membership, chat, leave, RSS dedupl
       {
         display_name: id,
         icebreakers: {
-          favorite_episode: "Pilot",
-          listening_habit: "Walking",
-          bio: "Hello",
+          day_off: "A hike with friends",
+          talk_for_hours: "Cooking",
+          small_joy: "A dog saying hello",
         },
         email_notifications_enabled: false,
       },
@@ -123,6 +123,66 @@ test("full MVP: profile, rankings, matching, membership, chat, leave, RSS dedupl
   await match(env);
   assert.equal(sql.prepare("SELECT count(*) AS n FROM messages").get()!.n, 6);
   const me = (await (await call("/me")).json()) as any;
+  assert.deepEqual(JSON.parse(me.profile.icebreakers_json), {
+    day_off: "A hike with friends",
+    talk_for_hours: "Cooking",
+    small_joy: "A dog saying hello",
+  });
+  const intro = sql
+    .prepare(
+      "SELECT body FROM messages WHERE user_id='a' AND type='system_intro'",
+    )
+    .get()!;
+  assert.match(String(intro.body), /What's your idea of a great day off\?/);
+  assert.match(String(intro.body), /Cooking/);
+  assert.equal(
+    (
+      await call("/profile", "PUT", {
+        display_name: "a",
+        icebreakers: { day_off: "Just one answer" },
+      })
+    ).status,
+    400,
+  );
+  // A cached frontend can still save its old answers without changing their meaning.
+  assert.equal(
+    (
+      await call(
+        "/profile",
+        "PUT",
+        {
+          display_name: "Legacy",
+          icebreakers: {
+            favorite_episode: "Pilot",
+            listening_habit: "Walking",
+            bio: "Hello",
+          },
+        },
+        "legacy",
+      )
+    ).status,
+    200,
+  );
+  await Promise.all(tasks.splice(0));
+  const legacy = (await (
+    await call("/me", "GET", undefined, "legacy")
+  ).json()) as any;
+  assert.deepEqual(JSON.parse(legacy.profile.icebreakers_json), {
+    favorite_episode: "Pilot",
+    listening_habit: "Walking",
+    bio: "Hello",
+  });
+  const originalSearchFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response("Forbidden", { status: 403 });
+    assert.equal((await call("/podcasts/search?q=mr%20ballen")).status, 502);
+    globalThis.fetch = async () => {
+      throw new Error("Timed out");
+    };
+    assert.equal((await call("/podcasts/search?q=mr%20ballen")).status, 502);
+  } finally {
+    globalThis.fetch = originalSearchFetch;
+  }
   const id = me.quartet.id;
   assert.ok(id);
   assert.equal(me.podcasts.length, 1);

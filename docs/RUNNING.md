@@ -47,8 +47,9 @@ The repository must have GitHub Pages configured to publish the root of `gh-page
 ## Implemented
 
 - Google OAuth through a first-party `/api/login` navigation (no third-party state cookie dependency), then the existing bridge's single-use bearer-token exchange
-- Profile and three icebreakers, shared only within the user's quartet
-- iTunes directory search and up to 20 ranked podcasts
+- Sequential setup: personal icebreakers, then favorite podcasts, then a waiting screen. Quartet navigation appears only after a match.
+- Three general conversation starters about a day off, a favorite topic, and a small joy. Legacy answers keep their original labels until edited.
+- iTunes directory search and up to 20 ranked podcasts. If the Worker lookup fails, the frontend retries the same public directory directly with CORS, without sending credentials. This is the same free source used by `smosa-image-gallery/crawlers/itunes_podcast_crawler.py`.
 - Matching by shared shows and ranking, with SQLite triggers enforcing four members and one active group per user
 - Quartet chat with incremental five-second polling and member bios
 - Leave quartet and return to matching

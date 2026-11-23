@@ -116,9 +116,11 @@ CREATE TABLE IF NOT EXISTS email_log (
 
 ### A. Onboarding & Icebreakers
 Users must complete onboarding (their display name + icebreaker answers) before participating in a quartet chat. Default icebreaker questions:
-1. `favorite_episode`: *"What's your all-time favorite podcast episode (and why)?"*
-2. `listening_habit`: *"When and where do you usually listen?"*
-3. `bio`: *"A little bit about you outside of podcasts:"*
+1. `day_off`: *"What's your idea of a great day off?"*
+2. `talk_for_hours`: *"What's something you could happily talk about for hours?"*
+3. `small_joy`: *"What's a small thing that always makes your day?"*
+
+These are general, party-style conversation starters, not podcast questions. Existing profiles retain their old answers and labels until updated; old answers are never relabeled as responses to the new questions.
 
 When a user completes onboarding or joins a quartet:
 - Their answers are visible on their **Profile** (and clickable from any member list in a quartet).

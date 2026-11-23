@@ -6,6 +6,16 @@ import type { AppVariables } from "../index";
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 const now = () => new Date().toISOString();
+const ICEBREAKERS = {
+  day_off: "What's your idea of a great day off?",
+  talk_for_hours: "What's something you could happily talk about for hours?",
+  small_joy: "What's a small thing that always makes your day?",
+};
+const LEGACY_ICEBREAKERS = {
+  favorite_episode: "Favorite episode",
+  listening_habit: "Listening habit",
+  bio: "About me",
+};
 const text = (v: unknown, max: number) =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
 app.use("*", bodyLimit({ maxSize: 50000 }));
@@ -45,8 +55,13 @@ app.put("/profile", async (c) => {
   const b = await c.req.json(),
     name = text(b.display_name, 80),
     answers: Record<string, string> = {};
-  for (const key of ["favorite_episode", "listening_habit", "bio"])
-    answers[key] = text(b.icebreakers?.[key], 1000);
+  // Accept old clients during the Pages rollout without relabeling existing answers.
+  const keys = Object.keys(ICEBREAKERS).some(
+    (key) => b.icebreakers?.[key] !== undefined,
+  )
+    ? Object.keys(ICEBREAKERS)
+    : Object.keys(LEGACY_ICEBREAKERS);
+  for (const key of keys) answers[key] = text(b.icebreakers?.[key], 1000);
   if (!name || Object.values(answers).some((v) => !v))
     return c.json(
       { error: "Please fill in your name and all three icebreakers." },
@@ -72,13 +87,24 @@ app.put("/profile", async (c) => {
 app.get("/podcasts/search", async (c) => {
   const q = text(c.req.query("q"), 120);
   if (q.length < 2) return c.json({ podcasts: [] });
-  const r = await fetch(
-    `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=20&term=${encodeURIComponent(q)}`,
-    { signal: AbortSignal.timeout(10000) },
-  );
-  if (!r.ok)
+  let data: { results: any[] };
+  try {
+    const r = await fetch(
+      `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=20&term=${encodeURIComponent(q)}`,
+      {
+        signal: AbortSignal.timeout(5000),
+        headers: { Accept: "application/json", "User-Agent": "Podfriends/1.0" },
+        cf: { cacheTtl: 3600, cacheEverything: true },
+      },
+    );
+    if (!r.ok) throw new Error(`Directory HTTP ${r.status}`);
+    data = (await r.json()) as { results: any[] };
+    if (!Array.isArray(data.results))
+      throw new Error("Invalid directory response");
+  } catch (error) {
+    console.warn("Podcast directory proxy failed:", String(error));
     return c.json({ error: "Podcast search is temporarily unavailable." }, 502);
-  const data = (await r.json()) as { results: any[] };
+  }
   return c.json({
     podcasts: data.results
       .filter((p) => p.feedUrl?.startsWith("https://"))
@@ -356,7 +382,15 @@ export async function match(env: Env) {
       .all<any>()
   ).results;
   for (const p of pending) {
-    const body = `${p.display_name} joined!\n${Object.values(JSON.parse(p.icebreakers_json)).join("\n")}`;
+    const answers = JSON.parse(p.icebreakers_json);
+    const introduction = Object.entries({
+      ...ICEBREAKERS,
+      ...LEGACY_ICEBREAKERS,
+    })
+      .filter(([key]) => answers[key])
+      .map(([key, question]) => `${question}\n${answers[key]}`)
+      .join("\n\n");
+    const body = `${p.display_name} joined!\n\n${introduction}`;
     const result = await db
       .prepare(
         "INSERT OR IGNORE INTO messages (id,quartet_id,user_id,type,body,created_at) VALUES (?,?,?,'system_intro',?,?)",
