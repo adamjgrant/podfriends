@@ -46,7 +46,7 @@ The repository must have GitHub Pages configured to publish the root of `gh-page
 
 ## Implemented
 
-- Google OAuth through the existing bridge and single-use bearer-token exchange
+- Google OAuth through a first-party `/api/login` navigation (no third-party state cookie dependency), then the existing bridge's single-use bearer-token exchange
 - Profile and three icebreakers, shared only within the user's quartet
 - iTunes directory search and up to 20 ranked podcasts
 - Matching by shared shows and ranking, with SQLite triggers enforcing four members and one active group per user
@@ -58,7 +58,8 @@ The repository must have GitHub Pages configured to publish the root of `gh-page
 ## Known MVP limitations
 
 - Resend is not configured. Email events are recorded as `logged`, not delivered. The frontend discloses this. To enable delivery, configure `RESEND_API_KEY` and a verified `EMAIL_FROM` with `wrangler secret put`, then update the frontend email notice.
-- An actual Google login requires the user to complete consent. Automated checks verify sign-in initiation, not the complete Google callback flow.
+- An actual Google login requires the user to complete consent. Live checks verify the Google redirect, state-cookie creation, invalid callback rejection, and authenticated API protection, not the complete Google callback flow.
+- GitHub reports Pages deployment status `built`. Browser smoke testing was blocked by the local Chrome launch environment, and outbound requests to the Pages domain timed out from the agent environment. Visual rendering and the full login flow still need a user-browser check.
 - Chat loads the newest 100 messages initially; older-history browsing is not implemented.
 - Matching processes 100 candidates per run; feed polling processes 10 feeds, oldest checked first. Larger adoption will require queues and capacity planning.
 - Leaving can result in matching into the same group again. There is no block/report, account deletion UI, moderation, or per-user rate limiting yet. Treat this as a small MVP, not a fully hardened public social network.
