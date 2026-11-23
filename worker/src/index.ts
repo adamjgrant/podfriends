@@ -1,10 +1,6 @@
 import { Hono } from "hono";
 import { createAuth, type Env } from "./auth";
-import {
-  getAllAllowedOrigins,
-  PROJECTS,
-  type ProjectConfig,
-} from "./projects";
+import { getAllAllowedOrigins, PROJECTS, type ProjectConfig } from "./projects";
 
 import podfriends, { match } from "./projects/podfriends";
 import { pollFeeds } from "./projects/feeds";
@@ -25,13 +21,10 @@ function applyCorsHeaders(headers: Headers, origin: string | null) {
   if (!origin) return;
   headers.set("Access-Control-Allow-Origin", origin);
   headers.set("Access-Control-Allow-Credentials", "true");
-  headers.set(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization"
-  );
+  headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   headers.set(
     "Access-Control-Allow-Methods",
-    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   );
   headers.set("Access-Control-Expose-Headers", "set-auth-token");
   headers.append("Vary", "Origin");
@@ -42,7 +35,7 @@ function parseOwnerEmails(env: Env): Set<string> {
     (env.OWNER_EMAILS || "")
       .split(",")
       .map((e) => e.trim().toLowerCase())
-      .filter(Boolean)
+      .filter(Boolean),
   );
 }
 
@@ -84,13 +77,13 @@ app.post("/api/exchange", async (c) => {
 
   const now = Math.floor(Date.now() / 1000);
   const row = await c.env.AUTH_DB.prepare(
-    "DELETE FROM auth_exchange_codes WHERE code = ? RETURNING token, expires_at"
+    "DELETE FROM auth_exchange_codes WHERE code = ? RETURNING token, expires_at",
   )
     .bind(code)
     .first<{ token: string; expires_at: number }>();
 
   await c.env.AUTH_DB.prepare(
-    "DELETE FROM auth_exchange_codes WHERE code = ? OR expires_at < ?"
+    "DELETE FROM auth_exchange_codes WHERE code = ? OR expires_at < ?",
   )
     .bind(code, now)
     .run();
@@ -106,20 +99,49 @@ app.post("/api/exchange", async (c) => {
 // A cross-site fetch from GitHub Pages cannot reliably set this cookie.
 app.get("/api/login", async (c) => {
   let callback: URL;
-  try { callback = new URL(c.req.query("callbackURL") || ""); }
-  catch { return c.json({ error: "Invalid callback URL" }, 400); }
-  if (!getAllAllowedOrigins().includes(callback.origin) || callback.username || callback.password) {
+  try {
+    callback = new URL(c.req.query("callbackURL") || "");
+  } catch {
+    return c.json({ error: "Invalid callback URL" }, 400);
+  }
+  if (
+    !getAllAllowedOrigins().includes(callback.origin) ||
+    callback.username ||
+    callback.password
+  ) {
     return c.json({ error: "Callback origin not allowed" }, 400);
+  }
+  const auth = createAuth(c.env, c.req.raw);
+  const existing = await auth.api.getSession({ headers: c.req.raw.headers });
+  if (existing?.session?.token) {
+    const code = crypto.randomUUID();
+    await c.env.AUTH_DB.prepare(
+      "INSERT INTO auth_exchange_codes (code, token, expires_at) VALUES (?, ?, ?)",
+    )
+      .bind(code, existing.session.token, Math.floor(Date.now() / 1000) + 60)
+      .run();
+    callback.hash = `auth_code=${encodeURIComponent(code)}`;
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: callback.href,
+        "Cache-Control": "no-store",
+      },
+    });
   }
   const origin = new URL(c.req.url).origin;
   const request = new Request(`${origin}/api/auth/sign-in/social`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: origin },
-    body: JSON.stringify({ provider: "google", callbackURL: callback.href, disableRedirect: true }),
+    body: JSON.stringify({
+      provider: "google",
+      callbackURL: callback.href,
+      disableRedirect: true,
+    }),
   });
   const response = await createAuth(c.env, request).handler(request);
   if (!response.ok) return response;
-  const data = await response.json() as { url?: string };
+  const data = (await response.json()) as { url?: string };
   if (!data.url || new URL(data.url).origin !== "https://accounts.google.com") {
     return c.json({ error: "Could not start Google sign-in" }, 502);
   }
@@ -149,7 +171,7 @@ app.all("/api/auth/*", async (c) => {
     const code = crypto.randomUUID();
     const expiresAt = Math.floor(Date.now() / 1000) + 60;
     await c.env.AUTH_DB.prepare(
-      "INSERT INTO auth_exchange_codes (code, token, expires_at) VALUES (?, ?, ?)"
+      "INSERT INTO auth_exchange_codes (code, token, expires_at) VALUES (?, ?, ?)",
     )
       .bind(code, authToken, expiresAt)
       .run();
@@ -177,7 +199,9 @@ app.use("/p/:projectId/*", async (c, next) => {
   }
 
   const origin = c.req.header("Origin") ?? null;
-  const originAllowed = origin ? project.allowedOrigins.includes(origin) : false;
+  const originAllowed = origin
+    ? project.allowedOrigins.includes(origin)
+    : false;
 
   if (c.req.method === "OPTIONS") {
     if (!originAllowed) {
@@ -214,7 +238,7 @@ app.use("/p/:projectId/*", async (c, next) => {
 
   if (project.accessMode === "allowlist") {
     const allowlist = new Set(
-      (project.allowedEmails || []).map((e) => e.toLowerCase())
+      (project.allowedEmails || []).map((e) => e.toLowerCase()),
     );
     if (!owners.has(userEmail) && !allowlist.has(userEmail)) {
       const res = c.json({ error: "Forbidden: not on project allowlist" }, 403);
@@ -224,12 +248,12 @@ app.use("/p/:projectId/*", async (c, next) => {
   }
 
   await c.env.AUTH_DB.prepare(
-    "INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)"
+    "INSERT OR IGNORE INTO project_members (project_id, user_id, role) VALUES (?, ?, ?)",
   )
     .bind(
       project.id,
       session.user.id,
-      owners.has(userEmail) ? "owner" : "member"
+      owners.has(userEmail) ? "owner" : "member",
     )
     .run();
 
@@ -262,7 +286,7 @@ app.get("/p/notes/notes", async (c) => {
   const user = c.get("user");
   const { results } = await db
     .prepare(
-      "SELECT id, title, body, created_at, updated_at FROM notes WHERE user_id = ? ORDER BY updated_at DESC"
+      "SELECT id, title, body, created_at, updated_at FROM notes WHERE user_id = ? ORDER BY updated_at DESC",
     )
     .bind(user.id)
     .all();
@@ -288,14 +312,14 @@ app.post("/p/notes/notes", async (c) => {
 
   await db
     .prepare(
-      "INSERT INTO notes (id, user_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+      "INSERT INTO notes (id, user_id, title, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(id, user.id, title, body, now, now)
     .run();
 
   return c.json(
     { note: { id, title, body, created_at: now, updated_at: now } },
-    201
+    201,
   );
 });
 
@@ -319,6 +343,11 @@ app.delete("/p/notes/notes/:noteId", async (c) => {
 export default {
   fetch: app.fetch,
   scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil((async () => { await match(env); await pollFeeds(env); })());
+    ctx.waitUntil(
+      (async () => {
+        await match(env);
+        await pollFeeds(env);
+      })(),
+    );
   },
 };

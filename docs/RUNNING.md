@@ -44,6 +44,8 @@ git subtree push --prefix frontend origin gh-pages
 
 The repository must have GitHub Pages configured to publish the root of `gh-pages`.
 
+When changing DOM elements required by `app.js`, bump `PAGE_VERSION` in `frontend/bootstrap.js` and the matching `data-app-version` and script `?v=` in `frontend/index.html`. The startup guard detects cached old HTML, reloads it once with a cache-busting query while preserving the OAuth hash, and refuses to initialize mismatched markup. Do not remove this guard: mismatched cached HTML previously crashed before the auth-code exchange and created a sign-in loop.
+
 ## Implemented
 
 - Google OAuth through a first-party `/api/login` navigation (no third-party state cookie dependency), then the existing bridge's single-use bearer-token exchange
@@ -70,3 +72,5 @@ The repository must have GitHub Pages configured to publish the root of `gh-page
 ## Tests
 
 `worker/tests/podfriends.test.ts` exercises the real Hono routes and matching SQL against in-memory SQLite. It covers onboarding, rankings, a six-person matching pool, database capacity invariants, membership restrictions, sending and polling messages, leaving, feed first-run suppression, episode deduplication, and URL/XML validation. It does not impersonate or modify any real user.
+
+`worker/tests/frontend-auth.test.ts` runs the bundled frontend in JSDOM to test saved-session restoration, one-time callback exchange, stale-page recovery without redirect loops, and expired-session handling. Search and setup tests cover the directory fallback and sequential onboarding.
